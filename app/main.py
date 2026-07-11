@@ -1,12 +1,18 @@
 import json
 import os
-import re
 import shutil
-import subprocess
 import sys
 import uuid
 
 from datetime import datetime
+
+from app.core.clamav import (
+    CommandWorker,
+    database_is_ready,
+    find_clamav_directory,
+    get_clamav_executable_paths,
+    get_clamav_version,
+)
 
 from app.core.paths import (
     DATABASE_DIRECTORY,
@@ -16,7 +22,8 @@ from app.core.paths import (
     initialize_application_data,
 )
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Signal
+
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -34,84 +41,17 @@ from PySide6.QtWidgets import (
 
 
 # =================================================
-# Common ClamAV installation locations
-# =================================================
-
-COMMON_CLAMAV_DIRECTORIES = [
-    r"C:\Program Files\ClamAV",
-    r"C:\Program Files (x86)\ClamAV",
-    r"C:\ClamAV",
-]
-
-
-# =================================================
-# ClamAV detection
-# =================================================
-
-def find_clamav_directory():
-
-    for directory in COMMON_CLAMAV_DIRECTORIES:
-
-        clamscan_path = os.path.join(
-            directory,
-            "clamscan.exe",
-        )
-
-        freshclam_path = os.path.join(
-            directory,
-            "freshclam.exe",
-        )
-
-        if (
-            os.path.isfile(clamscan_path)
-            and os.path.isfile(freshclam_path)
-        ):
-            return directory
-
-    return None
-
-
-def get_clamav_version(clamscan_path):
-
-    try:
-
-        result = subprocess.run(
-            [
-                clamscan_path,
-                "--version",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-
-        output = (
-            result.stdout.strip()
-            or result.stderr.strip()
-        )
-
-        if output:
-
-            return output
-
-    except Exception:
-
-        pass
-
-    return "Version unavailable"
-
-
-# =================================================
 # Quarantine data functions
 # =================================================
 
 def load_quarantine_records():
+    """
+    Load quarantine metadata from the JSON file.
+    """
 
     if not os.path.isfile(
         QUARANTINE_METADATA_PATH
     ):
-
         return []
 
     try:
@@ -130,14 +70,12 @@ def load_quarantine_records():
             records,
             list,
         ):
-
             return records
 
     except (
         OSError,
         json.JSONDecodeError,
     ):
-
         pass
 
     return []
@@ -146,6 +84,10 @@ def load_quarantine_records():
 def save_quarantine_records(
     records,
 ):
+    """
+    Save quarantine metadata safely using a
+    temporary file.
+    """
 
     temporary_path = (
         QUARANTINE_METADATA_PATH
@@ -169,174 +111,6 @@ def save_quarantine_records(
         temporary_path,
         QUARANTINE_METADATA_PATH,
     )
-
-
-# =================================================
-# Background command worker
-# =================================================
-
-class CommandWorker(QThread):
-
-    log_signal = Signal(str)
-
-    scan_result_signal = Signal(
-        str,
-        str,
-        str,
-    )
-
-    operation_finished = Signal(
-        int
-    )
-
-
-    def __init__(
-        self,
-        command,
-        operation_type,
-    ):
-
-        super().__init__()
-
-        self.command = command
-
-        self.operation_type = (
-            operation_type
-        )
-
-
-    def parse_scan_line(
-        self,
-        line,
-    ):
-
-        clean_match = re.match(
-            r"^(.*): OK$",
-            line,
-        )
-
-        if clean_match:
-
-            file_path = (
-                clean_match
-                .group(1)
-                .strip()
-            )
-
-            self.scan_result_signal.emit(
-                file_path,
-                "Clean",
-                "",
-            )
-
-            return
-
-
-        threat_match = re.match(
-            r"^(.*): (.+) FOUND$",
-            line,
-        )
-
-        if threat_match:
-
-            file_path = (
-                threat_match
-                .group(1)
-                .strip()
-            )
-
-            threat_name = (
-                threat_match
-                .group(2)
-                .strip()
-            )
-
-            self.scan_result_signal.emit(
-                file_path,
-                "Threat detected",
-                threat_name,
-            )
-
-
-    def run(self):
-
-        return_code = -1
-
-        try:
-
-            process = subprocess.Popen(
-                self.command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                errors="replace",
-            )
-
-            if process.stdout:
-
-                for line in process.stdout:
-
-                    clean_line = (
-                        line.rstrip()
-                    )
-
-                    self.log_signal.emit(
-                        clean_line
-                    )
-
-                    if (
-                        self.operation_type
-                        == "scan"
-                    ):
-
-                        self.parse_scan_line(
-                            clean_line
-                        )
-
-            process.wait()
-
-            return_code = (
-                process.returncode
-            )
-
-            if return_code == 0:
-
-                self.log_signal.emit(
-                    "Operation completed "
-                    "successfully."
-                )
-
-            elif return_code == 1:
-
-                self.log_signal.emit(
-                    "WARNING: ClamAV detected "
-                    "one or more threats."
-                )
-
-            else:
-
-                self.log_signal.emit(
-                    "Operation failed with "
-                    f"code {return_code}."
-                )
-
-        except FileNotFoundError:
-
-            self.log_signal.emit(
-                "ERROR: A required ClamAV "
-                "executable was not found."
-            )
-
-        except Exception as error:
-
-            self.log_signal.emit(
-                f"ERROR: {error}"
-            )
-
-        self.operation_finished.emit(
-            return_code
-        )
 
 
 # =================================================
@@ -580,8 +354,10 @@ class QuarantineWindow(QWidget):
             QMessageBox.information(
                 self,
                 "No Selection",
-                "Select a quarantined item "
-                "first.",
+                (
+                    "Select a quarantined "
+                    "item first."
+                ),
             )
 
             return None
@@ -618,8 +394,10 @@ class QuarantineWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "File Missing",
-                "The quarantined file "
-                "could not be found.",
+                (
+                    "The quarantined file "
+                    "could not be found."
+                ),
             )
 
             return
@@ -656,8 +434,8 @@ class QuarantineWindow(QWidget):
                     "File Already Exists",
                     (
                         "A file already exists "
-                        "at the original path.\n\n"
-                        "Replace it?"
+                        "at the original path."
+                        "\n\nReplace it?"
                     ),
                     (
                         QMessageBox.Yes
@@ -671,7 +449,6 @@ class QuarantineWindow(QWidget):
                 overwrite
                 != QMessageBox.Yes
             ):
-
                 return
 
             if os.path.isdir(
@@ -681,8 +458,10 @@ class QuarantineWindow(QWidget):
                 QMessageBox.warning(
                     self,
                     "Restore Failed",
-                    "The original path is "
-                    "currently a directory.",
+                    (
+                        "The original path is "
+                        "currently a directory."
+                    ),
                 )
 
                 return
@@ -727,7 +506,8 @@ class QuarantineWindow(QWidget):
                 self,
                 "File Restored",
                 (
-                    "The file was restored to:\n\n"
+                    "The file was restored "
+                    "to:\n\n"
                     f"{original_path}"
                 ),
             )
@@ -759,10 +539,10 @@ class QuarantineWindow(QWidget):
                 "Delete Permanently",
                 (
                     "This permanently deletes "
-                    "the quarantined file.\n\n"
-                    "This action cannot be "
-                    "undone.\n\n"
-                    "Continue?"
+                    "the quarantined file."
+                    "\n\nThis action cannot "
+                    "be undone."
+                    "\n\nContinue?"
                 ),
                 (
                     QMessageBox.Yes
@@ -776,7 +556,6 @@ class QuarantineWindow(QWidget):
             confirmation
             != QMessageBox.Yes
         ):
-
             return
 
         quarantine_path = record.get(
@@ -851,7 +630,6 @@ class MainWindow(QWidget):
         self.threat_count = 0
 
         initialize_application_data()
-        
 
         self.setWindowTitle(
             "PegaShield"
@@ -869,7 +647,6 @@ class MainWindow(QWidget):
         self.update_quarantine_count()
 
 
-    
     # =============================================
     # Graphical interface
     # =============================================
@@ -1136,14 +913,11 @@ class MainWindow(QWidget):
 
             return
 
-        self.clamscan_path = os.path.join(
-            self.clamav_directory,
-            "clamscan.exe",
-        )
-
-        self.freshclam_path = os.path.join(
-            self.clamav_directory,
-            "freshclam.exe",
+        (
+            self.clamscan_path,
+            self.freshclam_path,
+        ) = get_clamav_executable_paths(
+            self.clamav_directory
         )
 
         version = get_clamav_version(
@@ -1158,7 +932,7 @@ class MainWindow(QWidget):
             f"Engine: {version}"
         )
 
-        if self.database_is_ready():
+        if database_is_ready():
 
             self.database_label.setText(
                 "Database: Ready"
@@ -1175,7 +949,7 @@ class MainWindow(QWidget):
         )
 
         self.log_output.append(
-            f"ClamAV detected: "
+            "ClamAV detected: "
             f"{self.clamav_directory}"
         )
 
@@ -1184,36 +958,12 @@ class MainWindow(QWidget):
         )
 
         self.log_output.append(
-            f"Database directory: "
+            "Database directory: "
             f"{DATABASE_DIRECTORY}"
         )
 
         self.log_output.append(
             "Startup diagnostics completed."
-        )
-
-
-    def database_is_ready(
-        self,
-    ):
-
-        database_files = [
-            "daily.cvd",
-            "daily.cld",
-            "main.cvd",
-            "main.cld",
-            "bytecode.cvd",
-            "bytecode.cld",
-        ]
-
-        return any(
-            os.path.isfile(
-                os.path.join(
-                    DATABASE_DIRECTORY,
-                    filename,
-                )
-            )
-            for filename in database_files
         )
 
 
@@ -1336,7 +1086,7 @@ class MainWindow(QWidget):
         self.prepare_new_scan()
 
         self.log_output.append(
-            f"\nStarting file scan: "
+            "\nStarting file scan: "
             f"{file_path}"
         )
 
@@ -1372,7 +1122,7 @@ class MainWindow(QWidget):
         self.prepare_new_scan()
 
         self.log_output.append(
-            f"\nStarting folder scan: "
+            "\nStarting folder scan: "
             f"{folder_path}"
         )
 
@@ -1456,10 +1206,8 @@ class MainWindow(QWidget):
 
         self.summary_label.setText(
             f"Scanned files: {total} | "
-            f"Clean: "
-            f"{self.clean_file_count} | "
-            f"Threats: "
-            f"{self.threat_count}"
+            f"Clean: {self.clean_file_count} | "
+            f"Threats: {self.threat_count}"
         )
 
 
@@ -1495,8 +1243,10 @@ class MainWindow(QWidget):
             QMessageBox.information(
                 self,
                 "No Selection",
-                "Select a detected threat "
-                "from the results table.",
+                (
+                    "Select a detected threat "
+                    "from the results table."
+                ),
             )
 
             return
@@ -1526,7 +1276,6 @@ class MainWindow(QWidget):
             not file_item
             or not status_item
         ):
-
             return
 
         file_path = (
@@ -1582,7 +1331,8 @@ class MainWindow(QWidget):
                 (
                     "Move this detected file "
                     "to quarantine?\n\n"
-                    f"Threat: {threat_name}\n\n"
+                    f"Threat: {threat_name}"
+                    "\n\n"
                     f"File: {file_path}"
                 ),
                 (
@@ -1597,7 +1347,6 @@ class MainWindow(QWidget):
             confirmation
             != QMessageBox.Yes
         ):
-
             return
 
         quarantine_id = (
@@ -1775,7 +1524,7 @@ class MainWindow(QWidget):
                 "Status: Operation failed"
             )
 
-        if self.database_is_ready():
+        if database_is_ready():
 
             self.database_label.setText(
                 "Database: Ready"
