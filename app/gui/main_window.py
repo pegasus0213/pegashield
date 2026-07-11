@@ -13,13 +13,13 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
-    QScrollArea,
-    QSizePolicy,
 )
 
 from app.core.clamav import (
@@ -36,8 +36,16 @@ from app.core.paths import (
     initialize_application_data,
 )
 
+from app.core.settings import (
+    SettingsManager,
+)
+
 from app.gui.quarantine_window import (
     QuarantineWindow,
+)
+
+from app.gui.settings_window import (
+    SettingsWindow,
 )
 
 from app.services.quarantine import (
@@ -246,7 +254,9 @@ class ScanDropZone(QFrame):
         event.acceptProposedAction()
 
 
-    def reset_display(self):
+    def reset_display(
+        self,
+    ):
 
         self.set_drag_active(
             False
@@ -279,6 +289,12 @@ class MainWindow(QWidget):
 
         self.quarantine_window = None
 
+        self.settings_window = None
+
+        self.settings_manager = (
+            SettingsManager()
+        )
+
         self.clamav_directory = None
 
         self.clamscan_path = None
@@ -310,6 +326,17 @@ class MainWindow(QWidget):
         self.detect_clamav()
 
         self.update_quarantine_count()
+
+        if (
+            self.settings_manager
+            .get_open_log_on_startup()
+        ):
+
+            self.log_output.show()
+
+            self.toggle_log_button.setText(
+                "Hide Log"
+            )
 
 
     # =============================================
@@ -405,6 +432,7 @@ class MainWindow(QWidget):
         window_layout.addWidget(
             self.scroll_area
         )
+
 
     # =============================================
     # Header
@@ -775,7 +803,11 @@ class MainWindow(QWidget):
         self.clear_results_button = QPushButton(
             "Clear Results"
         )
-        
+
+        self.settings_button = QPushButton(
+            "Settings"
+        )
+
         self.cancel_operation_button = (
             QPushButton(
                 "Cancel Operation"
@@ -812,6 +844,10 @@ class MainWindow(QWidget):
 
         second_button_row.addWidget(
             self.clear_results_button
+        )
+
+        second_button_row.addWidget(
+            self.settings_button
         )
 
         second_button_row.addWidget(
@@ -853,13 +889,18 @@ class MainWindow(QWidget):
         self.clear_results_button.clicked.connect(
             self.clear_results
         )
-        
+
+        self.settings_button.clicked.connect(
+            self.open_settings
+        )
+
         self.cancel_operation_button.clicked.connect(
             self.cancel_current_operation
         )
 
         return panel
-    
+
+
     # =============================================
     # Results panel
     # =============================================
@@ -986,8 +1027,9 @@ class MainWindow(QWidget):
 
         return panel
 
+
     # =============================================
-    # Log panel
+    # Activity log
     # =============================================
 
     def create_log_panel(self):
@@ -1075,9 +1117,6 @@ class MainWindow(QWidget):
 
         return panel
 
-    # =============================================
-    # Toggle method
-    # =============================================
 
     def toggle_activity_log(self):
 
@@ -1097,6 +1136,7 @@ class MainWindow(QWidget):
                 "Hide Log"
             )
 
+
     # =============================================
     # Startup diagnostics
     # =============================================
@@ -1107,9 +1147,39 @@ class MainWindow(QWidget):
             "PegaShield startup diagnostics..."
         )
 
-        self.clamav_directory = (
-            find_clamav_directory()
+        configured_directory = (
+            self.settings_manager
+            .get_clamav_directory()
         )
+
+        configured_clamscan = os.path.join(
+            configured_directory,
+            "clamscan.exe",
+        )
+
+        configured_freshclam = os.path.join(
+            configured_directory,
+            "freshclam.exe",
+        )
+
+        if (
+            os.path.isfile(
+                configured_clamscan
+            )
+            and os.path.isfile(
+                configured_freshclam
+            )
+        ):
+
+            self.clamav_directory = (
+                configured_directory
+            )
+
+        else:
+
+            self.clamav_directory = (
+                find_clamav_directory()
+            )
 
         if not self.clamav_directory:
 
@@ -1320,7 +1390,7 @@ class MainWindow(QWidget):
         self.set_operation_buttons_enabled(
             False
         )
-        
+
         self.cancel_operation_button.setEnabled(
             True
         )
@@ -1348,13 +1418,10 @@ class MainWindow(QWidget):
 
         self.worker.start()
 
+
     def cancel_current_operation(
         self,
     ):
-        """
-        Request cancellation of the active
-        ClamAV scan or database update.
-        """
 
         if (
             self.worker is None
@@ -1376,6 +1443,7 @@ class MainWindow(QWidget):
         )
 
         self.worker.cancel()
+
 
     # =============================================
     # Database update
@@ -1404,17 +1472,26 @@ class MainWindow(QWidget):
     # Scan operations
     # =============================================
 
-    def prepare_new_scan(self):
+    def prepare_new_scan(
+        self,
+    ):
 
-        self.results_table.setRowCount(
-            0
+        clear_previous = (
+            self.settings_manager
+            .get_clear_results_before_scan()
         )
 
-        self.clean_file_count = 0
+        if clear_previous:
 
-        self.threat_count = 0
+            self.results_table.setRowCount(
+                0
+            )
 
-        self.update_summary()
+            self.clean_file_count = 0
+
+            self.threat_count = 0
+
+            self.update_summary()
 
 
     def start_scan_path(
@@ -1638,6 +1715,96 @@ class MainWindow(QWidget):
         self.threat_count = 0
 
         self.update_summary()
+
+
+    # =============================================
+    # Settings
+    # =============================================
+
+    def open_settings(
+        self,
+    ):
+
+        if (
+            self.worker is not None
+            and self.worker.isRunning()
+        ):
+
+            QMessageBox.information(
+                self,
+                "Operation in Progress",
+                (
+                    "Wait for the current "
+                    "operation to finish before "
+                    "changing settings."
+                ),
+            )
+
+            return
+
+        if (
+            self.settings_window
+            is None
+        ):
+
+            self.settings_window = (
+                SettingsWindow(
+                    self.settings_manager
+                )
+            )
+
+            self.settings_window.settings_saved.connect(
+                self.apply_settings
+            )
+
+        self.settings_window.load_settings()
+
+        self.settings_window.show()
+
+        self.settings_window.raise_()
+
+        self.settings_window.activateWindow()
+
+
+    def apply_settings(
+        self,
+    ):
+
+        clamav_directory = (
+            self.settings_manager
+            .get_clamav_directory()
+        )
+
+        (
+            self.clamscan_path,
+            self.freshclam_path,
+        ) = get_clamav_executable_paths(
+            clamav_directory
+        )
+
+        self.clamav_directory = (
+            clamav_directory
+        )
+
+        self.log_output.append(
+            "\nPegaShield settings reloaded."
+        )
+
+        self.log_output.append(
+            "ClamAV directory: "
+            f"{clamav_directory}"
+        )
+
+        QMessageBox.information(
+            self,
+            "Restart Recommended",
+            (
+                "The settings were applied."
+                "\n\nRestart PegaShield after "
+                "changing ClamAV or database "
+                "locations."
+            ),
+        )
 
 
     # =============================================

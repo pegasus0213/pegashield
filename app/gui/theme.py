@@ -591,4 +591,79 @@ QPushButton#dangerButton:disabled {
     border-color: #242E3C;
 }
 
+/* =================================================
+   Settings window
+   ================================================= */
+
+QLabel#settingsTitle {
+    color: #F8FAFC;
+
+    font-size: 18pt;
+    font-weight: 800;
+
+    letter-spacing: 1px;
+}
+
+
+QLabel#settingsDescription {
+    color: #8FA4BF;
+
+    font-size: 9pt;
+}
+
+
+QFrame#settingsPanel {
+    background-color: #0D192B;
+
+    border: 1px solid #20324A;
+    border-radius: 12px;
+}
+
+
+QLineEdit {
+    min-height: 38px;
+
+    padding-left: 11px;
+    padding-right: 11px;
+
+    background-color: #081321;
+
+    color: #E6EDF7;
+
+    border: 1px solid #2A405E;
+    border-radius: 8px;
+
+    selection-background-color: #1769E0;
+}
+
+
+QLineEdit:focus {
+    border-color: #4EA1FF;
+}
+
+
+QCheckBox {
+    color: #DCE7F5;
+
+    spacing: 9px;
+}
+
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+
+    background-color: #081321;
+
+    border: 1px solid #385777;
+    border-radius: 4px;
+}
+
+
+QCheckBox::indicator:checked {
+    background-color: #1769E0;
+
+    border-color: #4EA1FF;
+}
+
 """
