@@ -33,6 +33,11 @@ QUARANTINE_METADATA_PATH = os.path.join(
     "quarantine.json",
 )
 
+SCAN_HISTORY_PATH = os.path.join(
+    PEGASHIELD_DATA_DIRECTORY,
+    "scan_history.json",
+)
+
 FRESHCLAM_CONFIG_PATH = os.path.join(
     PEGASHIELD_DATA_DIRECTORY,
     "freshclam.conf",

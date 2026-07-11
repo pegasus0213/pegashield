@@ -39,12 +39,20 @@ from app.core.settings import (
     SettingsManager,
 )
 
+from app.gui.history_window import (
+    HistoryWindow,
+)
+
 from app.gui.quarantine_window import (
     QuarantineWindow,
 )
 
 from app.gui.settings_window import (
     SettingsWindow,
+)
+
+from app.services.scan_history import (
+    add_scan_record,
 )
 
 from app.services.quarantine import (
@@ -289,6 +297,18 @@ class MainWindow(QWidget):
         self.quarantine_window = None
 
         self.settings_window = None
+
+        self.history_window = None
+
+        self.active_operation_type = None
+
+        self.active_scan_target = None
+
+        self.active_scan_type = None
+
+        self.current_scan_clean_count = 0
+
+        self.current_scan_threat_count = 0
 
         self.settings_manager = (
             SettingsManager()
@@ -810,6 +830,10 @@ class MainWindow(QWidget):
             "Clear Results"
         )
 
+        self.history_button = QPushButton(
+            "Scan History"
+        )
+
         self.settings_button = QPushButton(
             "Settings"
         )
@@ -850,6 +874,10 @@ class MainWindow(QWidget):
 
         second_button_row.addWidget(
             self.clear_results_button
+        )
+
+        second_button_row.addWidget(
+            self.history_button
         )
 
         second_button_row.addWidget(
@@ -894,6 +922,10 @@ class MainWindow(QWidget):
 
         self.clear_results_button.clicked.connect(
             self.clear_results
+        )
+
+        self.history_button.clicked.connect(
+            self.open_history
         )
 
         self.settings_button.clicked.connect(
@@ -1407,6 +1439,10 @@ class MainWindow(QWidget):
             status
         )
 
+        self.active_operation_type = (
+            operation_type
+        )
+
         self.worker = CommandWorker(
             command,
             operation_type,
@@ -1524,6 +1560,16 @@ class MainWindow(QWidget):
 
         self.prepare_new_scan()
 
+        self.active_scan_target = (
+            os.path.normpath(
+                path
+            )
+        )
+
+        self.current_scan_clean_count = 0
+
+        self.current_scan_threat_count = 0
+
         if os.path.isdir(
             path
         ):
@@ -1543,6 +1589,10 @@ class MainWindow(QWidget):
 
             status = "SCANNING FOLDER"
 
+            self.active_scan_type = (
+                "Folder"
+            )
+
         else:
 
             self.log_output.append(
@@ -1558,6 +1608,10 @@ class MainWindow(QWidget):
             ]
 
             status = "SCANNING FILE"
+
+            self.active_scan_type = (
+                "File"
+            )
 
         self.start_command(
             command,
@@ -1680,9 +1734,13 @@ class MainWindow(QWidget):
 
             self.clean_file_count += 1
 
+            self.current_scan_clean_count += 1
+
         elif status == "Threat detected":
 
             self.threat_count += 1
+
+            self.current_scan_threat_count += 1
 
             self.set_security_state(
                 "Threat detected",
@@ -1724,6 +1782,30 @@ class MainWindow(QWidget):
 
         self.update_summary()
 
+    # =============================================
+    # Scan history
+    # =============================================
+
+    def open_history(
+        self,
+    ):
+
+        if (
+            self.history_window
+            is None
+        ):
+
+            self.history_window = (
+                HistoryWindow()
+            )
+
+        self.history_window.refresh_table()
+
+        self.history_window.show()
+
+        self.history_window.raise_()
+
+        self.history_window.activateWindow()
 
     # =============================================
     # Settings
@@ -2128,6 +2210,54 @@ class MainWindow(QWidget):
 
         self.quarantine_window.activateWindow()
 
+    # =============================================
+    # Scan-history recording
+    # =============================================
+
+    def save_completed_scan(
+        self,
+        result,
+    ):
+
+        if (
+            self.active_operation_type
+            != "scan"
+        ):
+
+            return
+
+        if not self.active_scan_target:
+
+            return
+
+        try:
+
+            add_scan_record(
+                self.active_scan_target,
+                self.active_scan_type,
+                self.current_scan_clean_count,
+                self.current_scan_threat_count,
+                result,
+            )
+
+            self.log_output.append(
+                "Scan summary saved to history."
+            )
+
+        except OSError as error:
+
+            self.log_output.append(
+                "WARNING: Scan history could "
+                "not be saved: "
+                f"{error}"
+            )
+
+        if (
+            self.history_window
+            is not None
+        ):
+
+            self.history_window.refresh_table()
 
     # =============================================
     # Worker output
@@ -2156,7 +2286,16 @@ class MainWindow(QWidget):
             False
         )
 
+        completed_operation = (
+            self.active_operation_type
+        )
+
         if return_code == -2:
+            if completed_operation == "scan":
+
+                self.save_completed_scan(
+                    "Cancelled"
+                )
 
             self.set_operation_status(
                 "CANCELLED"
@@ -2173,6 +2312,12 @@ class MainWindow(QWidget):
             )
 
         elif return_code == 0:
+
+            if completed_operation == "scan":
+
+                self.save_completed_scan(
+                    "Clean"
+                )
 
             self.set_operation_status(
                 "READY"
@@ -2205,6 +2350,12 @@ class MainWindow(QWidget):
 
         elif return_code == 1:
 
+            if completed_operation == "scan":
+
+                self.save_completed_scan(
+                    "Threats detected"
+                )
+
             self.set_operation_status(
                 "THREAT DETECTED"
             )
@@ -2221,6 +2372,12 @@ class MainWindow(QWidget):
 
         else:
 
+            if completed_operation == "scan":
+
+                self.save_completed_scan(
+                    "Failed"
+                )
+
             self.set_operation_status(
                 "FAILED"
             )
@@ -2233,3 +2390,12 @@ class MainWindow(QWidget):
                 ),
                 "ERROR",
             )
+        self.active_operation_type = None
+
+        self.active_scan_target = None
+
+        self.active_scan_type = None
+
+        self.current_scan_clean_count = 0
+
+        self.current_scan_threat_count = 0
