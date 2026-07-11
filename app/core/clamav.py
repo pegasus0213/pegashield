@@ -9,9 +9,6 @@ from PySide6.QtCore import (
     Signal,
 )
 
-from app.core.paths import (
-    DATABASE_DIRECTORY,
-)
 
 
 # =================================================
@@ -140,32 +137,44 @@ def get_clamav_version(
 # Virus database validation
 # =================================================
 
-def database_is_ready():
+def database_is_ready(
+    database_directory,
+):
     """
-    Check whether at least one supported ClamAV
-    database file exists in the PegaShield
-    database directory.
+    Check whether the selected database directory
+    contains the required ClamAV signature files.
+
+    ClamAV may use either CVD or CLD database
+    formats.
     """
 
-    database_files = [
-        "daily.cvd",
-        "daily.cld",
-        "main.cvd",
-        "main.cld",
-        "bytecode.cvd",
-        "bytecode.cld",
+    required_database_groups = [
+        (
+            "daily.cvd",
+            "daily.cld",
+        ),
+        (
+            "main.cvd",
+            "main.cld",
+        ),
+        (
+            "bytecode.cvd",
+            "bytecode.cld",
+        ),
     ]
 
-    return any(
-        os.path.isfile(
-            os.path.join(
-                DATABASE_DIRECTORY,
-                filename,
+    return all(
+        any(
+            os.path.isfile(
+                os.path.join(
+                    database_directory,
+                    filename,
+                )
             )
+            for filename in group
         )
-        for filename in database_files
+        for group in required_database_groups
     )
-
 
 # =================================================
 # Background ClamAV command worker

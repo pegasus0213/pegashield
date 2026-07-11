@@ -31,7 +31,6 @@ from app.core.clamav import (
 )
 
 from app.core.paths import (
-    DATABASE_DIRECTORY,
     FRESHCLAM_CONFIG_PATH,
     initialize_application_data,
 )
@@ -295,6 +294,11 @@ class MainWindow(QWidget):
             SettingsManager()
         )
 
+        self.database_directory = (
+            self.settings_manager
+            .get_database_directory()
+        )
+
         self.clamav_directory = None
 
         self.clamscan_path = None
@@ -305,7 +309,9 @@ class MainWindow(QWidget):
 
         self.threat_count = 0
 
-        initialize_application_data()
+        initialize_application_data(
+            self.database_directory
+        )
 
         self.setWindowTitle(
             "PegaShield"
@@ -1242,7 +1248,9 @@ class MainWindow(QWidget):
             version
         )
 
-        if database_is_ready():
+        if database_is_ready(
+            self.database_directory
+        ):
 
             self.database_label.setText(
                 "Ready"
@@ -1296,7 +1304,7 @@ class MainWindow(QWidget):
 
         self.log_output.append(
             "Database directory: "
-            f"{DATABASE_DIRECTORY}"
+            f"{self.database_directory}"
         )
 
         self.log_output.append(
@@ -1529,7 +1537,7 @@ class MainWindow(QWidget):
                 self.clamscan_path,
                 "--recursive",
                 "--database",
-                DATABASE_DIRECTORY,
+                self.database_directory,
                 path,
             ]
 
@@ -1545,7 +1553,7 @@ class MainWindow(QWidget):
             command = [
                 self.clamscan_path,
                 "--database",
-                DATABASE_DIRECTORY,
+                self.database_directory,
                 path,
             ]
 
@@ -1769,10 +1777,19 @@ class MainWindow(QWidget):
     def apply_settings(
         self,
     ):
+        """
+        Reload saved ClamAV and database settings
+        without requiring an application restart.
+        """
 
         clamav_directory = (
             self.settings_manager
             .get_clamav_directory()
+        )
+
+        database_directory = (
+            self.settings_manager
+            .get_database_directory()
         )
 
         (
@@ -1786,26 +1803,104 @@ class MainWindow(QWidget):
             clamav_directory
         )
 
+        self.database_directory = (
+            database_directory
+        )
+
+        try:
+
+            initialize_application_data(
+                self.database_directory
+            )
+
+        except OSError as error:
+
+            QMessageBox.critical(
+                self,
+                "Settings Error",
+                (
+                    "PegaShield could not "
+                    "initialize the selected "
+                    "database directory."
+                    "\n\n"
+                    f"{error}"
+                ),
+            )
+
+            return
+
         self.log_output.append(
             "\nPegaShield settings reloaded."
         )
 
         self.log_output.append(
             "ClamAV directory: "
-            f"{clamav_directory}"
+            f"{self.clamav_directory}"
+        )
+
+        self.log_output.append(
+            "Database directory: "
+            f"{self.database_directory}"
+        )
+
+        if database_is_ready(
+            self.database_directory
+        ):
+
+            self.database_label.setText(
+                "Ready"
+            )
+
+            self.database_detail_label.setText(
+                "Virus signatures available"
+            )
+
+            self.set_security_state(
+                "Local protection is ready",
+                (
+                    "ClamAV is installed and "
+                    "the selected signature "
+                    "database is available."
+                ),
+                "PROTECTED",
+            )
+
+        else:
+
+            self.database_label.setText(
+                "Update required"
+            )
+
+            self.database_detail_label.setText(
+                "Selected database is empty"
+            )
+
+            self.set_security_state(
+                "Database update required",
+                (
+                    "The selected database "
+                    "folder does not contain "
+                    "the required signatures. "
+                    "Click Update Database."
+                ),
+                "ATTENTION",
+            )
+
+        self.set_operation_status(
+            "READY"
         )
 
         QMessageBox.information(
             self,
-            "Restart Recommended",
+            "Settings Applied",
             (
                 "The settings were applied."
-                "\n\nRestart PegaShield after "
-                "changing ClamAV or database "
-                "locations."
+                "\n\n"
+                "New scans and database "
+                "updates will use the selected "
+                "database directory."
             ),
         )
-
 
     # =============================================
     # Quarantine
@@ -2083,7 +2178,9 @@ class MainWindow(QWidget):
                 "READY"
             )
 
-            if database_is_ready():
+            if database_is_ready(
+                self.database_directory
+            ):
 
                 self.database_label.setText(
                     "Ready"

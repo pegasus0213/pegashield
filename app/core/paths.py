@@ -43,16 +43,25 @@ FRESHCLAM_CONFIG_PATH = os.path.join(
 # Application-data initialization
 # =================================================
 
-def create_application_directories():
+def create_application_directories(
+    database_directory=None,
+):
     """
     Create the directories required by PegaShield.
 
+    A custom database directory may be supplied.
     Existing directories are preserved.
     """
 
+    if database_directory is None:
+
+        database_directory = (
+            DATABASE_DIRECTORY
+        )
+
     directories = [
         PEGASHIELD_DATA_DIRECTORY,
-        DATABASE_DIRECTORY,
+        database_directory,
         LOG_DIRECTORY,
         QUARANTINE_DIRECTORY,
     ]
@@ -69,19 +78,30 @@ def create_application_directories():
 # FreshClam configuration
 # =================================================
 
-def create_freshclam_configuration():
+def create_freshclam_configuration(
+    database_directory=None,
+):
     """
     Create the FreshClam configuration used by
     PegaShield.
 
     FreshClam stores virus databases in the
-    PegaShield application-data directory so the
-    GUI does not need administrator privileges.
+    selected PegaShield database directory.
     """
 
+    if database_directory is None:
+
+        database_directory = (
+            DATABASE_DIRECTORY
+        )
+
+    database_directory = os.path.normpath(
+        database_directory
+    )
+
     configuration = (
-        f"DatabaseDirectory "
-        f"{DATABASE_DIRECTORY}\n"
+        "DatabaseDirectory "
+        f"{database_directory}\n"
         "DatabaseMirror "
         "database.clamav.net\n"
         "Checks 12\n"
@@ -98,12 +118,25 @@ def create_freshclam_configuration():
         )
 
 
-def initialize_application_data():
+def initialize_application_data(
+    database_directory=None,
+):
     """
-    Initialize all PegaShield application-data
-    directories and configuration files.
+    Initialize PegaShield application-data
+    directories and generate the FreshClam
+    configuration for the selected database.
     """
 
-    create_application_directories()
+    if database_directory is None:
 
-    create_freshclam_configuration()
+        database_directory = (
+            DATABASE_DIRECTORY
+        )
+
+    create_application_directories(
+        database_directory
+    )
+
+    create_freshclam_configuration(
+        database_directory
+    )
