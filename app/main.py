@@ -6,6 +6,7 @@ from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QTextEdit,
@@ -14,13 +15,11 @@ from PySide6.QtWidgets import (
 )
 
 
-# -------------------------------------------------
+# =================================================
 # PegaShield application-data paths
-# -------------------------------------------------
+# =================================================
 
-PEGASHIELD_DATA_DIRECTORY = (
-    r"C:\ProgramData\PegaShield"
-)
+PEGASHIELD_DATA_DIRECTORY = r"C:\ProgramData\PegaShield"
 
 DATABASE_DIRECTORY = os.path.join(
     PEGASHIELD_DATA_DIRECTORY,
@@ -43,9 +42,9 @@ FRESHCLAM_CONFIG_PATH = os.path.join(
 )
 
 
-# -------------------------------------------------
-# ClamAV detection
-# -------------------------------------------------
+# =================================================
+# Common ClamAV installation locations
+# =================================================
 
 COMMON_CLAMAV_DIRECTORIES = [
     r"C:\Program Files\ClamAV",
@@ -54,10 +53,13 @@ COMMON_CLAMAV_DIRECTORIES = [
 ]
 
 
+# =================================================
+# ClamAV detection functions
+# =================================================
+
 def find_clamav_directory():
     """
-    Search common Windows installation locations
-    for the required ClamAV executables.
+    Search common Windows locations for ClamAV.
     """
 
     for directory in COMMON_CLAMAV_DIRECTORIES:
@@ -83,11 +85,11 @@ def find_clamav_directory():
 
 def get_clamav_version(clamscan_path):
     """
-    Run clamscan --version and return
-    the installed engine version.
+    Get the installed ClamAV engine version.
     """
 
     try:
+
         result = subprocess.run(
             [
                 clamscan_path,
@@ -113,22 +115,18 @@ def get_clamav_version(clamscan_path):
     return "Version unavailable"
 
 
-# -------------------------------------------------
+# =================================================
 # Background command worker
-# -------------------------------------------------
+# =================================================
 
 class CommandWorker(QThread):
 
     log_signal = Signal(str)
 
-    operation_finished = Signal(
-        int
-    )
+    operation_finished = Signal(int)
 
-    def __init__(
-        self,
-        command,
-    ):
+    def __init__(self, command):
+
         super().__init__()
 
         self.command = command
@@ -157,22 +155,19 @@ class CommandWorker(QThread):
 
             process.wait()
 
-            return_code = (
-                process.returncode
-            )
+            return_code = process.returncode
 
             if return_code == 0:
 
                 self.log_signal.emit(
-                    "Operation completed "
-                    "successfully."
+                    "Operation completed successfully."
                 )
 
             elif return_code == 1:
 
                 self.log_signal.emit(
-                    "WARNING: Threats were "
-                    "detected."
+                    "WARNING: ClamAV detected "
+                    "one or more threats."
                 )
 
             else:
@@ -200,9 +195,9 @@ class CommandWorker(QThread):
         )
 
 
-# -------------------------------------------------
-# Main PegaShield window
-# -------------------------------------------------
+# =================================================
+# Main application window
+# =================================================
 
 class MainWindow(QWidget):
 
@@ -213,7 +208,9 @@ class MainWindow(QWidget):
         self.worker = None
 
         self.clamav_directory = None
+
         self.clamscan_path = None
+
         self.freshclam_path = None
 
         self.create_data_directories()
@@ -234,9 +231,9 @@ class MainWindow(QWidget):
         self.detect_clamav()
 
 
-    # ---------------------------------------------
-    # Application setup
-    # ---------------------------------------------
+    # =============================================
+    # PegaShield setup
+    # =============================================
 
     def create_data_directories(self):
 
@@ -257,10 +254,8 @@ class MainWindow(QWidget):
     def create_freshclam_configuration(self):
 
         configuration = (
-            "DatabaseDirectory "
-            f"{DATABASE_DIRECTORY}\n"
-            "DatabaseMirror "
-            "database.clamav.net\n"
+            f"DatabaseDirectory {DATABASE_DIRECTORY}\n"
+            "DatabaseMirror database.clamav.net\n"
             "Checks 12\n"
         )
 
@@ -275,13 +270,13 @@ class MainWindow(QWidget):
             )
 
 
-    # ---------------------------------------------
-    # GUI
-    # ---------------------------------------------
+    # =============================================
+    # Graphical interface
+    # =============================================
 
     def build_interface(self):
 
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
         title = QLabel(
             "PegaShield — Powered by ClamAV"
@@ -307,8 +302,22 @@ class MainWindow(QWidget):
             "Update Database"
         )
 
-        self.scan_button = QPushButton(
+        self.scan_file_button = QPushButton(
+            "Scan File"
+        )
+
+        self.scan_folder_button = QPushButton(
             "Scan Folder"
+        )
+
+        scan_buttons_layout = QHBoxLayout()
+
+        scan_buttons_layout.addWidget(
+            self.scan_file_button
+        )
+
+        scan_buttons_layout.addWidget(
+            self.scan_folder_button
         )
 
         self.log_output = QTextEdit()
@@ -317,54 +326,58 @@ class MainWindow(QWidget):
             True
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             title
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.engine_status_label
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.version_label
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.database_label
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.operation_status_label
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.update_button
         )
 
-        layout.addWidget(
-            self.scan_button
+        main_layout.addLayout(
+            scan_buttons_layout
         )
 
-        layout.addWidget(
+        main_layout.addWidget(
             self.log_output
         )
 
         self.setLayout(
-            layout
+            main_layout
         )
 
         self.update_button.clicked.connect(
             self.update_database
         )
 
-        self.scan_button.clicked.connect(
+        self.scan_file_button.clicked.connect(
+            self.scan_file
+        )
+
+        self.scan_folder_button.clicked.connect(
             self.scan_folder
         )
 
 
-    # ---------------------------------------------
-    # ClamAV diagnostics
-    # ---------------------------------------------
+    # =============================================
+    # ClamAV startup diagnostics
+    # =============================================
 
     def detect_clamav(self):
 
@@ -391,21 +404,24 @@ class MainWindow(QWidget):
             )
 
             self.operation_status_label.setText(
-                "Status: ClamAV installation "
-                "required"
+                "Status: ClamAV installation required"
             )
 
             self.update_button.setEnabled(
                 False
             )
 
-            self.scan_button.setEnabled(
+            self.scan_file_button.setEnabled(
+                False
+            )
+
+            self.scan_folder_button.setEnabled(
                 False
             )
 
             self.log_output.append(
                 "ERROR: ClamAV was not found "
-                "in a supported location."
+                "in a supported installation location."
             )
 
             return
@@ -432,11 +448,7 @@ class MainWindow(QWidget):
             f"Engine: {version}"
         )
 
-        database_ready = (
-            self.database_is_ready()
-        )
-
-        if database_ready:
+        if self.database_is_ready():
 
             self.database_label.setText(
                 "Database: Ready"
@@ -490,13 +502,13 @@ class MainWindow(QWidget):
 
         for filename in database_files:
 
-            path = os.path.join(
+            database_path = os.path.join(
                 DATABASE_DIRECTORY,
                 filename,
             )
 
             if os.path.isfile(
-                path
+                database_path
             ):
 
                 return True
@@ -504,9 +516,9 @@ class MainWindow(QWidget):
         return False
 
 
-    # ---------------------------------------------
-    # Command execution
-    # ---------------------------------------------
+    # =============================================
+    # Background command handling
+    # =============================================
 
     def start_command(
         self,
@@ -518,7 +530,11 @@ class MainWindow(QWidget):
             False
         )
 
-        self.scan_button.setEnabled(
+        self.scan_file_button.setEnabled(
+            False
+        )
+
+        self.scan_folder_button.setEnabled(
             False
         )
 
@@ -541,6 +557,10 @@ class MainWindow(QWidget):
         self.worker.start()
 
 
+    # =============================================
+    # Database update
+    # =============================================
+
     def update_database(self):
 
         self.log_output.append(
@@ -559,21 +579,59 @@ class MainWindow(QWidget):
         )
 
 
+    # =============================================
+    # Individual file scan
+    # =============================================
+
+    def scan_file(self):
+
+        file_path, _ = (
+            QFileDialog.getOpenFileName(
+                self,
+                "Select File to Scan",
+            )
+        )
+
+        if not file_path:
+
+            return
+
+        self.log_output.append(
+            f"\nStarting file scan: {file_path}"
+        )
+
+        command = [
+            self.clamscan_path,
+            "--database",
+            DATABASE_DIRECTORY,
+            file_path,
+        ]
+
+        self.start_command(
+            command,
+            "Status: Scanning file...",
+        )
+
+
+    # =============================================
+    # Recursive folder scan
+    # =============================================
+
     def scan_folder(self):
 
-        folder = (
+        folder_path = (
             QFileDialog.getExistingDirectory(
                 self,
                 "Select Folder to Scan",
             )
         )
 
-        if not folder:
+        if not folder_path:
 
             return
 
         self.log_output.append(
-            f"\nStarting scan: {folder}"
+            f"\nStarting folder scan: {folder_path}"
         )
 
         command = [
@@ -581,14 +639,18 @@ class MainWindow(QWidget):
             "--recursive",
             "--database",
             DATABASE_DIRECTORY,
-            folder,
+            folder_path,
         ]
 
         self.start_command(
             command,
-            "Status: Scanning...",
+            "Status: Scanning folder...",
         )
 
+
+    # =============================================
+    # GUI updates
+    # =============================================
 
     def append_log(
         self,
@@ -609,7 +671,11 @@ class MainWindow(QWidget):
             True
         )
 
-        self.scan_button.setEnabled(
+        self.scan_file_button.setEnabled(
+            True
+        )
+
+        self.scan_folder_button.setEnabled(
             True
         )
 
@@ -638,9 +704,9 @@ class MainWindow(QWidget):
             )
 
 
-# -------------------------------------------------
+# =================================================
 # Application entry point
-# -------------------------------------------------
+# =================================================
 
 if __name__ == "__main__":
 
