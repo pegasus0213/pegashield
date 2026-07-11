@@ -1,7 +1,12 @@
+import json
 import os
 import re
-import sys
+import shutil
 import subprocess
+import sys
+import uuid
+
+from datetime import datetime
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -10,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -38,6 +44,11 @@ LOG_DIRECTORY = os.path.join(
 QUARANTINE_DIRECTORY = os.path.join(
     PEGASHIELD_DATA_DIRECTORY,
     "quarantine",
+)
+
+QUARANTINE_METADATA_PATH = os.path.join(
+    QUARANTINE_DIRECTORY,
+    "quarantine.json",
 )
 
 FRESHCLAM_CONFIG_PATH = os.path.join(
@@ -105,12 +116,83 @@ def get_clamav_version(clamscan_path):
         )
 
         if output:
+
             return output
 
     except Exception:
+
         pass
 
     return "Version unavailable"
+
+
+# =================================================
+# Quarantine data functions
+# =================================================
+
+def load_quarantine_records():
+
+    if not os.path.isfile(
+        QUARANTINE_METADATA_PATH
+    ):
+
+        return []
+
+    try:
+
+        with open(
+            QUARANTINE_METADATA_PATH,
+            "r",
+            encoding="utf-8",
+        ) as metadata_file:
+
+            records = json.load(
+                metadata_file
+            )
+
+        if isinstance(
+            records,
+            list,
+        ):
+
+            return records
+
+    except (
+        OSError,
+        json.JSONDecodeError,
+    ):
+
+        pass
+
+    return []
+
+
+def save_quarantine_records(
+    records,
+):
+
+    temporary_path = (
+        QUARANTINE_METADATA_PATH
+        + ".tmp"
+    )
+
+    with open(
+        temporary_path,
+        "w",
+        encoding="utf-8",
+    ) as metadata_file:
+
+        json.dump(
+            records,
+            metadata_file,
+            indent=4,
+            ensure_ascii=False,
+        )
+
+    os.replace(
+        temporary_path,
+        QUARANTINE_METADATA_PATH,
+    )
 
 
 # =================================================
@@ -127,7 +209,10 @@ class CommandWorker(QThread):
         str,
     )
 
-    operation_finished = Signal(int)
+    operation_finished = Signal(
+        int
+    )
+
 
     def __init__(
         self,
@@ -279,16 +364,505 @@ class CommandWorker(QThread):
 
 
 # =================================================
-# Main application window
+# Quarantine Manager
+# =================================================
+
+class QuarantineWindow(QWidget):
+
+    quarantine_changed = Signal()
+
+
+    def __init__(
+        self,
+    ):
+
+        super().__init__()
+
+        self.records = []
+
+        self.setWindowTitle(
+            "PegaShield Quarantine"
+        )
+
+        self.resize(
+            1000,
+            500,
+        )
+
+        self.build_interface()
+
+        self.refresh_table()
+
+
+    def build_interface(
+        self,
+    ):
+
+        layout = QVBoxLayout()
+
+        title = QLabel(
+            "Quarantined Items"
+        )
+
+        self.summary_label = QLabel(
+            "Items: 0"
+        )
+
+        self.table = QTableWidget()
+
+        self.table.setColumnCount(
+            4
+        )
+
+        self.table.setHorizontalHeaderLabels(
+            [
+                "Original File",
+                "Threat",
+                "Date",
+                "Quarantine ID",
+            ]
+        )
+
+        header = (
+            self.table
+            .horizontalHeader()
+        )
+
+        header.setSectionResizeMode(
+            0,
+            QHeaderView.Stretch,
+        )
+
+        header.setSectionResizeMode(
+            1,
+            QHeaderView.Stretch,
+        )
+
+        header.setSectionResizeMode(
+            2,
+            QHeaderView.ResizeToContents,
+        )
+
+        header.setSectionResizeMode(
+            3,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.setEditTriggers(
+            QTableWidget.NoEditTriggers
+        )
+
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectRows
+        )
+
+        self.restore_button = QPushButton(
+            "Restore Selected"
+        )
+
+        self.delete_button = QPushButton(
+            "Delete Permanently"
+        )
+
+        self.refresh_button = QPushButton(
+            "Refresh"
+        )
+
+        button_layout = QHBoxLayout()
+
+        button_layout.addWidget(
+            self.restore_button
+        )
+
+        button_layout.addWidget(
+            self.delete_button
+        )
+
+        button_layout.addWidget(
+            self.refresh_button
+        )
+
+        layout.addWidget(
+            title
+        )
+
+        layout.addWidget(
+            self.summary_label
+        )
+
+        layout.addWidget(
+            self.table
+        )
+
+        layout.addLayout(
+            button_layout
+        )
+
+        self.setLayout(
+            layout
+        )
+
+        self.restore_button.clicked.connect(
+            self.restore_selected
+        )
+
+        self.delete_button.clicked.connect(
+            self.delete_selected
+        )
+
+        self.refresh_button.clicked.connect(
+            self.refresh_table
+        )
+
+
+    def refresh_table(
+        self,
+    ):
+
+        self.records = (
+            load_quarantine_records()
+        )
+
+        self.table.setRowCount(
+            0
+        )
+
+        for record in self.records:
+
+            row = (
+                self.table.rowCount()
+            )
+
+            self.table.insertRow(
+                row
+            )
+
+            self.table.setItem(
+                row,
+                0,
+                QTableWidgetItem(
+                    record.get(
+                        "original_path",
+                        "",
+                    )
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    record.get(
+                        "threat_name",
+                        "",
+                    )
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    record.get(
+                        "quarantined_at",
+                        "",
+                    )
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                3,
+                QTableWidgetItem(
+                    record.get(
+                        "id",
+                        "",
+                    )
+                ),
+            )
+
+        self.summary_label.setText(
+            f"Items: {len(self.records)}"
+        )
+
+
+    def selected_record(
+        self,
+    ):
+
+        row = (
+            self.table.currentRow()
+        )
+
+        if (
+            row < 0
+            or row >= len(
+                self.records
+            )
+        ):
+
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Select a quarantined item "
+                "first.",
+            )
+
+            return None
+
+        return self.records[row]
+
+
+    def restore_selected(
+        self,
+    ):
+
+        record = (
+            self.selected_record()
+        )
+
+        if not record:
+
+            return
+
+        original_path = record.get(
+            "original_path",
+            "",
+        )
+
+        quarantine_path = record.get(
+            "quarantine_path",
+            "",
+        )
+
+        if not os.path.isfile(
+            quarantine_path
+        ):
+
+            QMessageBox.warning(
+                self,
+                "File Missing",
+                "The quarantined file "
+                "could not be found.",
+            )
+
+            return
+
+        warning = QMessageBox.warning(
+            self,
+            "Restore Threat",
+            (
+                "This file was detected as:\n\n"
+                f"{record.get('threat_name', '')}"
+                "\n\nRestoring it may allow "
+                "the file to be accessed or "
+                "executed again.\n\n"
+                "Do you want to continue?"
+            ),
+            (
+                QMessageBox.Yes
+                | QMessageBox.No
+            ),
+            QMessageBox.No,
+        )
+
+        if warning != QMessageBox.Yes:
+
+            return
+
+        if os.path.exists(
+            original_path
+        ):
+
+            overwrite = (
+                QMessageBox.question(
+                    self,
+                    "File Already Exists",
+                    (
+                        "A file already exists "
+                        "at the original path.\n\n"
+                        "Replace it?"
+                    ),
+                    (
+                        QMessageBox.Yes
+                        | QMessageBox.No
+                    ),
+                    QMessageBox.No,
+                )
+            )
+
+            if (
+                overwrite
+                != QMessageBox.Yes
+            ):
+
+                return
+
+            if os.path.isdir(
+                original_path
+            ):
+
+                QMessageBox.warning(
+                    self,
+                    "Restore Failed",
+                    "The original path is "
+                    "currently a directory.",
+                )
+
+                return
+
+            os.remove(
+                original_path
+            )
+
+        try:
+
+            original_directory = (
+                os.path.dirname(
+                    original_path
+                )
+            )
+
+            if original_directory:
+
+                os.makedirs(
+                    original_directory,
+                    exist_ok=True,
+                )
+
+            shutil.move(
+                quarantine_path,
+                original_path,
+            )
+
+            self.records.remove(
+                record
+            )
+
+            save_quarantine_records(
+                self.records
+            )
+
+            self.refresh_table()
+
+            self.quarantine_changed.emit()
+
+            QMessageBox.information(
+                self,
+                "File Restored",
+                (
+                    "The file was restored to:\n\n"
+                    f"{original_path}"
+                ),
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Restore Failed",
+                str(error),
+            )
+
+
+    def delete_selected(
+        self,
+    ):
+
+        record = (
+            self.selected_record()
+        )
+
+        if not record:
+
+            return
+
+        confirmation = (
+            QMessageBox.warning(
+                self,
+                "Delete Permanently",
+                (
+                    "This permanently deletes "
+                    "the quarantined file.\n\n"
+                    "This action cannot be "
+                    "undone.\n\n"
+                    "Continue?"
+                ),
+                (
+                    QMessageBox.Yes
+                    | QMessageBox.No
+                ),
+                QMessageBox.No,
+            )
+        )
+
+        if (
+            confirmation
+            != QMessageBox.Yes
+        ):
+
+            return
+
+        quarantine_path = record.get(
+            "quarantine_path",
+            "",
+        )
+
+        try:
+
+            if os.path.isfile(
+                quarantine_path
+            ):
+
+                os.remove(
+                    quarantine_path
+                )
+
+            self.records.remove(
+                record
+            )
+
+            save_quarantine_records(
+                self.records
+            )
+
+            self.refresh_table()
+
+            self.quarantine_changed.emit()
+
+            QMessageBox.information(
+                self,
+                "Deleted",
+                (
+                    "The quarantined file "
+                    "was permanently deleted."
+                ),
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Delete Failed",
+                str(error),
+            )
+
+
+# =================================================
+# Main PegaShield window
 # =================================================
 
 class MainWindow(QWidget):
 
-    def __init__(self):
+    def __init__(
+        self,
+    ):
 
         super().__init__()
 
         self.worker = None
+
+        self.quarantine_window = None
 
         self.clamav_directory = None
 
@@ -309,20 +883,24 @@ class MainWindow(QWidget):
         )
 
         self.resize(
-            1100,
-            750,
+            1150,
+            780,
         )
 
         self.build_interface()
 
         self.detect_clamav()
 
+        self.update_quarantine_count()
+
 
     # =============================================
     # Application setup
     # =============================================
 
-    def create_data_directories(self):
+    def create_data_directories(
+        self,
+    ):
 
         directories = [
             DATABASE_DIRECTORY,
@@ -338,7 +916,9 @@ class MainWindow(QWidget):
             )
 
 
-    def create_freshclam_configuration(self):
+    def create_freshclam_configuration(
+        self,
+    ):
 
         configuration = (
             f"DatabaseDirectory "
@@ -363,7 +943,9 @@ class MainWindow(QWidget):
     # Graphical interface
     # =============================================
 
-    def build_interface(self):
+    def build_interface(
+        self,
+    ):
 
         main_layout = QVBoxLayout()
 
@@ -387,6 +969,9 @@ class MainWindow(QWidget):
             "Status: Starting..."
         )
 
+        self.quarantine_count_label = QLabel(
+            "Quarantine: 0 items"
+        )
 
         self.update_button = QPushButton(
             "Update Database"
@@ -400,10 +985,21 @@ class MainWindow(QWidget):
             "Scan Folder"
         )
 
+        self.quarantine_selected_button = (
+            QPushButton(
+                "Quarantine Selected"
+            )
+        )
+
+        self.open_quarantine_button = (
+            QPushButton(
+                "Open Quarantine"
+            )
+        )
+
         self.clear_results_button = QPushButton(
             "Clear Results"
         )
-
 
         action_layout = QHBoxLayout()
 
@@ -420,16 +1016,22 @@ class MainWindow(QWidget):
         )
 
         action_layout.addWidget(
-            self.clear_results_button
+            self.quarantine_selected_button
         )
 
+        action_layout.addWidget(
+            self.open_quarantine_button
+        )
+
+        action_layout.addWidget(
+            self.clear_results_button
+        )
 
         self.summary_label = QLabel(
             "Scanned files: 0 | "
             "Clean: 0 | "
             "Threats: 0"
         )
-
 
         self.results_table = QTableWidget()
 
@@ -445,22 +1047,22 @@ class MainWindow(QWidget):
             ]
         )
 
-        table_header = (
+        header = (
             self.results_table
             .horizontalHeader()
         )
 
-        table_header.setSectionResizeMode(
+        header.setSectionResizeMode(
             0,
             QHeaderView.Stretch,
         )
 
-        table_header.setSectionResizeMode(
+        header.setSectionResizeMode(
             1,
             QHeaderView.ResizeToContents,
         )
 
-        table_header.setSectionResizeMode(
+        header.setSectionResizeMode(
             2,
             QHeaderView.Stretch,
         )
@@ -473,7 +1075,6 @@ class MainWindow(QWidget):
             QTableWidget.SelectRows
         )
 
-
         log_title = QLabel(
             "ClamAV Log"
         )
@@ -483,7 +1084,6 @@ class MainWindow(QWidget):
         self.log_output.setReadOnly(
             True
         )
-
 
         main_layout.addWidget(
             title
@@ -503,6 +1103,10 @@ class MainWindow(QWidget):
 
         main_layout.addWidget(
             self.operation_status_label
+        )
+
+        main_layout.addWidget(
+            self.quarantine_count_label
         )
 
         main_layout.addLayout(
@@ -531,7 +1135,6 @@ class MainWindow(QWidget):
             main_layout
         )
 
-
         self.update_button.clicked.connect(
             self.update_database
         )
@@ -544,6 +1147,14 @@ class MainWindow(QWidget):
             self.scan_folder
         )
 
+        self.quarantine_selected_button.clicked.connect(
+            self.quarantine_selected
+        )
+
+        self.open_quarantine_button.clicked.connect(
+            self.open_quarantine
+        )
+
         self.clear_results_button.clicked.connect(
             self.clear_results
         )
@@ -553,7 +1164,9 @@ class MainWindow(QWidget):
     # Startup diagnostics
     # =============================================
 
-    def detect_clamav(self):
+    def detect_clamav(
+        self,
+    ):
 
         self.log_output.append(
             "PegaShield startup diagnostics..."
@@ -591,7 +1204,6 @@ class MainWindow(QWidget):
             )
 
             return
-
 
         self.clamscan_path = os.path.join(
             self.clamav_directory,
@@ -650,7 +1262,9 @@ class MainWindow(QWidget):
         )
 
 
-    def database_is_ready(self):
+    def database_is_ready(
+        self,
+    ):
 
         database_files = [
             "daily.cvd",
@@ -733,7 +1347,9 @@ class MainWindow(QWidget):
     # Database update
     # =============================================
 
-    def update_database(self):
+    def update_database(
+        self,
+    ):
 
         self.log_output.append(
             "\nStarting database update..."
@@ -756,7 +1372,9 @@ class MainWindow(QWidget):
     # Scan operations
     # =============================================
 
-    def prepare_new_scan(self):
+    def prepare_new_scan(
+        self,
+    ):
 
         self.results_table.setRowCount(
             0
@@ -769,7 +1387,9 @@ class MainWindow(QWidget):
         self.update_summary()
 
 
-    def scan_file(self):
+    def scan_file(
+        self,
+    ):
 
         file_path, _ = (
             QFileDialog.getOpenFileName(
@@ -803,7 +1423,9 @@ class MainWindow(QWidget):
         )
 
 
-    def scan_folder(self):
+    def scan_folder(
+        self,
+    ):
 
         folder_path = (
             QFileDialog.getExistingDirectory(
@@ -892,7 +1514,9 @@ class MainWindow(QWidget):
         self.update_summary()
 
 
-    def update_summary(self):
+    def update_summary(
+        self,
+    ):
 
         total = (
             self.clean_file_count
@@ -908,7 +1532,9 @@ class MainWindow(QWidget):
         )
 
 
-    def clear_results(self):
+    def clear_results(
+        self,
+    ):
 
         self.results_table.setRowCount(
             0
@@ -919,6 +1545,262 @@ class MainWindow(QWidget):
         self.threat_count = 0
 
         self.update_summary()
+
+
+    # =============================================
+    # Quarantine
+    # =============================================
+
+    def quarantine_selected(
+        self,
+    ):
+
+        row = (
+            self.results_table.currentRow()
+        )
+
+        if row < 0:
+
+            QMessageBox.information(
+                self,
+                "No Selection",
+                "Select a detected threat "
+                "from the results table.",
+            )
+
+            return
+
+        file_item = (
+            self.results_table.item(
+                row,
+                0,
+            )
+        )
+
+        status_item = (
+            self.results_table.item(
+                row,
+                1,
+            )
+        )
+
+        threat_item = (
+            self.results_table.item(
+                row,
+                2,
+            )
+        )
+
+        if (
+            not file_item
+            or not status_item
+        ):
+
+            return
+
+        file_path = (
+            file_item.text()
+        )
+
+        status = (
+            status_item.text()
+        )
+
+        threat_name = (
+            threat_item.text()
+            if threat_item
+            else ""
+        )
+
+        if (
+            status
+            != "Threat detected"
+        ):
+
+            QMessageBox.information(
+                self,
+                "Clean File",
+                (
+                    "Only detected threats "
+                    "can be quarantined."
+                ),
+            )
+
+            return
+
+        if not os.path.isfile(
+            file_path
+        ):
+
+            QMessageBox.warning(
+                self,
+                "File Missing",
+                (
+                    "The detected file no "
+                    "longer exists at:\n\n"
+                    f"{file_path}"
+                ),
+            )
+
+            return
+
+        confirmation = (
+            QMessageBox.warning(
+                self,
+                "Quarantine Threat",
+                (
+                    "Move this detected file "
+                    "to quarantine?\n\n"
+                    f"Threat: {threat_name}\n\n"
+                    f"File: {file_path}"
+                ),
+                (
+                    QMessageBox.Yes
+                    | QMessageBox.No
+                ),
+                QMessageBox.Yes,
+            )
+        )
+
+        if (
+            confirmation
+            != QMessageBox.Yes
+        ):
+
+            return
+
+        quarantine_id = (
+            uuid.uuid4().hex
+        )
+
+        quarantine_path = os.path.join(
+            QUARANTINE_DIRECTORY,
+            f"{quarantine_id}.psq",
+        )
+
+        record = {
+            "id": quarantine_id,
+            "original_path": file_path,
+            "quarantine_path": (
+                quarantine_path
+            ),
+            "original_name": (
+                os.path.basename(
+                    file_path
+                )
+            ),
+            "threat_name": threat_name,
+            "quarantined_at": (
+                datetime.now()
+                .astimezone()
+                .isoformat(
+                    timespec="seconds"
+                )
+            ),
+        }
+
+        try:
+
+            shutil.move(
+                file_path,
+                quarantine_path,
+            )
+
+            records = (
+                load_quarantine_records()
+            )
+
+            records.append(
+                record
+            )
+
+            save_quarantine_records(
+                records
+            )
+
+            status_item.setText(
+                "Quarantined"
+            )
+
+            self.operation_status_label.setText(
+                "Status: Threat quarantined"
+            )
+
+            self.log_output.append(
+                "\nThreat quarantined:"
+            )
+
+            self.log_output.append(
+                file_path
+            )
+
+            self.update_quarantine_count()
+
+            QMessageBox.information(
+                self,
+                "Threat Quarantined",
+                (
+                    "The detected file was "
+                    "moved to quarantine."
+                ),
+            )
+
+        except Exception as error:
+
+            if (
+                os.path.isfile(
+                    quarantine_path
+                )
+                and not os.path.isfile(
+                    file_path
+                )
+            ):
+
+                try:
+
+                    shutil.move(
+                        quarantine_path,
+                        file_path,
+                    )
+
+                except Exception:
+
+                    pass
+
+            QMessageBox.critical(
+                self,
+                "Quarantine Failed",
+                str(error),
+            )
+
+
+    def update_quarantine_count(
+        self,
+    ):
+
+        records = (
+            load_quarantine_records()
+        )
+
+        self.quarantine_count_label.setText(
+            "Quarantine: "
+            f"{len(records)} items"
+        )
+
+
+    def open_quarantine(
+        self,
+    ):
+
+        self.quarantine_window = (
+            QuarantineWindow()
+        )
+
+        self.quarantine_window.quarantine_changed.connect(
+            self.update_quarantine_count
+        )
+
+        self.quarantine_window.show()
 
 
     # =============================================
