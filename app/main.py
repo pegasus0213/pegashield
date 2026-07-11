@@ -8,6 +8,14 @@ import uuid
 
 from datetime import datetime
 
+from app.core.paths import (
+    DATABASE_DIRECTORY,
+    FRESHCLAM_CONFIG_PATH,
+    QUARANTINE_DIRECTORY,
+    QUARANTINE_METADATA_PATH,
+    initialize_application_data,
+)
+
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -22,38 +30,6 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
-)
-
-
-# =================================================
-# PegaShield application-data paths
-# =================================================
-
-PEGASHIELD_DATA_DIRECTORY = r"C:\ProgramData\PegaShield"
-
-DATABASE_DIRECTORY = os.path.join(
-    PEGASHIELD_DATA_DIRECTORY,
-    "database",
-)
-
-LOG_DIRECTORY = os.path.join(
-    PEGASHIELD_DATA_DIRECTORY,
-    "logs",
-)
-
-QUARANTINE_DIRECTORY = os.path.join(
-    PEGASHIELD_DATA_DIRECTORY,
-    "quarantine",
-)
-
-QUARANTINE_METADATA_PATH = os.path.join(
-    QUARANTINE_DIRECTORY,
-    "quarantine.json",
-)
-
-FRESHCLAM_CONFIG_PATH = os.path.join(
-    PEGASHIELD_DATA_DIRECTORY,
-    "freshclam.conf",
 )
 
 
@@ -874,9 +850,8 @@ class MainWindow(QWidget):
 
         self.threat_count = 0
 
-        self.create_data_directories()
-
-        self.create_freshclam_configuration()
+        initialize_application_data()
+        
 
         self.setWindowTitle(
             "PegaShield"
@@ -894,51 +869,7 @@ class MainWindow(QWidget):
         self.update_quarantine_count()
 
 
-    # =============================================
-    # Application setup
-    # =============================================
-
-    def create_data_directories(
-        self,
-    ):
-
-        directories = [
-            DATABASE_DIRECTORY,
-            LOG_DIRECTORY,
-            QUARANTINE_DIRECTORY,
-        ]
-
-        for directory in directories:
-
-            os.makedirs(
-                directory,
-                exist_ok=True,
-            )
-
-
-    def create_freshclam_configuration(
-        self,
-    ):
-
-        configuration = (
-            f"DatabaseDirectory "
-            f"{DATABASE_DIRECTORY}\n"
-            "DatabaseMirror "
-            "database.clamav.net\n"
-            "Checks 12\n"
-        )
-
-        with open(
-            FRESHCLAM_CONFIG_PATH,
-            "w",
-            encoding="utf-8",
-        ) as configuration_file:
-
-            configuration_file.write(
-                configuration
-            )
-
-
+    
     # =============================================
     # Graphical interface
     # =============================================
