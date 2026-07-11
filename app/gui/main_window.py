@@ -1,7 +1,10 @@
 import os
 
+from PySide6.QtCore import Qt
+
 from PySide6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -40,7 +43,7 @@ from app.services.quarantine import (
 
 class MainWindow(QWidget):
     """
-    Main PegaShield application window.
+    Main PegaShield security dashboard.
     """
 
     def __init__(self):
@@ -67,9 +70,14 @@ class MainWindow(QWidget):
             "PegaShield"
         )
 
+        self.setMinimumSize(
+            1050,
+            720,
+        )
+
         self.resize(
-            1150,
-            780,
+            1250,
+            850,
         )
 
         self.build_interface()
@@ -80,47 +88,399 @@ class MainWindow(QWidget):
 
 
     # =============================================
-    # Graphical interface
+    # Interface
     # =============================================
 
     def build_interface(self):
 
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(
+            self
+        )
+
+        main_layout.setContentsMargins(
+            24,
+            20,
+            24,
+            20,
+        )
+
+        main_layout.setSpacing(
+            16
+        )
+
+        main_layout.addWidget(
+            self.create_header()
+        )
+
+        main_layout.addWidget(
+            self.create_security_banner()
+        )
+
+        main_layout.addLayout(
+            self.create_status_cards()
+        )
+
+        main_layout.addWidget(
+            self.create_action_panel()
+        )
+
+        main_layout.addWidget(
+            self.create_results_panel(),
+            3,
+        )
+
+        main_layout.addWidget(
+            self.create_log_panel(),
+            2,
+        )
+
+
+    # =============================================
+    # Header
+    # =============================================
+
+    def create_header(self):
+
+        header = QFrame()
+
+        header.setObjectName(
+            "headerPanel"
+        )
+
+        layout = QHBoxLayout(
+            header
+        )
+
+        layout.setContentsMargins(
+            20,
+            14,
+            20,
+            14,
+        )
+
+        brand_layout = QVBoxLayout()
+
+        brand_layout.setSpacing(
+            2
+        )
 
         title = QLabel(
-            "PegaShield — Powered by ClamAV"
+            "PEGASHIELD"
         )
 
-        self.engine_status_label = QLabel(
-            "ClamAV: Checking..."
+        title.setObjectName(
+            "brandTitle"
         )
 
-        self.version_label = QLabel(
-            "Engine: Checking..."
+        subtitle = QLabel(
+            "Local threat detection powered "
+            "by ClamAV"
         )
 
-        self.database_label = QLabel(
-            "Database: Checking..."
+        subtitle.setObjectName(
+            "brandSubtitle"
+        )
+
+        brand_layout.addWidget(
+            title
+        )
+
+        brand_layout.addWidget(
+            subtitle
         )
 
         self.operation_status_label = QLabel(
-            "Status: Starting..."
+            "READY"
         )
 
-        self.quarantine_count_label = QLabel(
-            "Quarantine: 0 items"
+        self.operation_status_label.setObjectName(
+            "operationBadge"
         )
 
-        self.update_button = QPushButton(
-            "Update Database"
+        self.operation_status_label.setAlignment(
+            Qt.AlignCenter
+        )
+
+        layout.addLayout(
+            brand_layout
+        )
+
+        layout.addStretch()
+
+        layout.addWidget(
+            self.operation_status_label
+        )
+
+        return header
+
+
+    # =============================================
+    # Security banner
+    # =============================================
+
+    def create_security_banner(self):
+
+        self.security_banner = QFrame()
+
+        self.security_banner.setObjectName(
+            "securityBanner"
+        )
+
+        layout = QHBoxLayout(
+            self.security_banner
+        )
+
+        layout.setContentsMargins(
+            20,
+            15,
+            20,
+            15,
+        )
+
+        text_layout = QVBoxLayout()
+
+        text_layout.setSpacing(
+            2
+        )
+
+        self.security_title_label = QLabel(
+            "Checking protection status"
+        )
+
+        self.security_title_label.setObjectName(
+            "securityTitle"
+        )
+
+        self.security_message_label = QLabel(
+            "PegaShield is checking the "
+            "ClamAV engine and signature "
+            "database."
+        )
+
+        self.security_message_label.setObjectName(
+            "securityMessage"
+        )
+
+        text_layout.addWidget(
+            self.security_title_label
+        )
+
+        text_layout.addWidget(
+            self.security_message_label
+        )
+
+        self.security_state_label = QLabel(
+            "CHECKING"
+        )
+
+        self.security_state_label.setObjectName(
+            "securityState"
+        )
+
+        self.security_state_label.setAlignment(
+            Qt.AlignCenter
+        )
+
+        layout.addLayout(
+            text_layout
+        )
+
+        layout.addStretch()
+
+        layout.addWidget(
+            self.security_state_label
+        )
+
+        return self.security_banner
+
+
+    # =============================================
+    # Status cards
+    # =============================================
+
+    def create_status_cards(self):
+
+        cards_layout = QHBoxLayout()
+
+        cards_layout.setSpacing(
+            14
+        )
+
+        (
+            engine_card,
+            self.engine_status_label,
+            self.version_label,
+        ) = self.create_status_card(
+            "CLAMAV ENGINE",
+            "Checking...",
+            "Detecting installation",
+        )
+
+        (
+            database_card,
+            self.database_label,
+            self.database_detail_label,
+        ) = self.create_status_card(
+            "SIGNATURE DATABASE",
+            "Checking...",
+            "Verifying local database",
+        )
+
+        (
+            quarantine_card,
+            self.quarantine_count_label,
+            self.quarantine_detail_label,
+        ) = self.create_status_card(
+            "QUARANTINE",
+            "0 items",
+            "Isolated threats",
+        )
+
+        cards_layout.addWidget(
+            engine_card
+        )
+
+        cards_layout.addWidget(
+            database_card
+        )
+
+        cards_layout.addWidget(
+            quarantine_card
+        )
+
+        return cards_layout
+
+
+    def create_status_card(
+        self,
+        heading,
+        value,
+        detail,
+    ):
+
+        card = QFrame()
+
+        card.setObjectName(
+            "statusCard"
+        )
+
+        layout = QVBoxLayout(
+            card
+        )
+
+        layout.setContentsMargins(
+            18,
+            14,
+            18,
+            14,
+        )
+
+        layout.setSpacing(
+            5
+        )
+
+        heading_label = QLabel(
+            heading
+        )
+
+        heading_label.setObjectName(
+            "cardHeading"
+        )
+
+        value_label = QLabel(
+            value
+        )
+
+        value_label.setObjectName(
+            "cardValue"
+        )
+
+        detail_label = QLabel(
+            detail
+        )
+
+        detail_label.setObjectName(
+            "cardDetail"
+        )
+
+        layout.addWidget(
+            heading_label
+        )
+
+        layout.addWidget(
+            value_label
+        )
+
+        layout.addWidget(
+            detail_label
+        )
+
+        return (
+            card,
+            value_label,
+            detail_label,
+        )
+
+
+    # =============================================
+    # Action panel
+    # =============================================
+
+    def create_action_panel(self):
+
+        panel = QFrame()
+
+        panel.setObjectName(
+            "sectionPanel"
+        )
+
+        panel_layout = QVBoxLayout(
+            panel
+        )
+
+        panel_layout.setContentsMargins(
+            18,
+            15,
+            18,
+            15,
+        )
+
+        panel_layout.setSpacing(
+            12
+        )
+
+        section_title = QLabel(
+            "SECURITY ACTIONS"
+        )
+
+        section_title.setObjectName(
+            "sectionTitle"
+        )
+
+        button_layout = QHBoxLayout()
+
+        button_layout.setSpacing(
+            10
         )
 
         self.scan_file_button = QPushButton(
             "Scan File"
         )
 
+        self.scan_file_button.setObjectName(
+            "primaryButton"
+        )
+
         self.scan_folder_button = QPushButton(
             "Scan Folder"
+        )
+
+        self.scan_folder_button.setObjectName(
+            "primaryButton"
+        )
+
+        self.update_button = QPushButton(
+            "Update Database"
         )
 
         self.quarantine_selected_button = (
@@ -139,36 +499,120 @@ class MainWindow(QWidget):
             "Clear Results"
         )
 
-        action_layout = QHBoxLayout()
-
-        action_layout.addWidget(
-            self.update_button
-        )
-
-        action_layout.addWidget(
+        button_layout.addWidget(
             self.scan_file_button
         )
 
-        action_layout.addWidget(
+        button_layout.addWidget(
             self.scan_folder_button
         )
 
-        action_layout.addWidget(
+        button_layout.addWidget(
+            self.update_button
+        )
+
+        button_layout.addWidget(
             self.quarantine_selected_button
         )
 
-        action_layout.addWidget(
+        button_layout.addWidget(
             self.open_quarantine_button
         )
 
-        action_layout.addWidget(
+        button_layout.addWidget(
             self.clear_results_button
         )
 
+        panel_layout.addWidget(
+            section_title
+        )
+
+        panel_layout.addLayout(
+            button_layout
+        )
+
+        self.update_button.clicked.connect(
+            self.update_database
+        )
+
+        self.scan_file_button.clicked.connect(
+            self.scan_file
+        )
+
+        self.scan_folder_button.clicked.connect(
+            self.scan_folder
+        )
+
+        self.quarantine_selected_button.clicked.connect(
+            self.quarantine_selected
+        )
+
+        self.open_quarantine_button.clicked.connect(
+            self.open_quarantine
+        )
+
+        self.clear_results_button.clicked.connect(
+            self.clear_results
+        )
+
+        return panel
+
+
+    # =============================================
+    # Results panel
+    # =============================================
+
+    def create_results_panel(self):
+
+        panel = QFrame()
+
+        panel.setObjectName(
+            "sectionPanel"
+        )
+
+        panel_layout = QVBoxLayout(
+            panel
+        )
+
+        panel_layout.setContentsMargins(
+            18,
+            15,
+            18,
+            15,
+        )
+
+        panel_layout.setSpacing(
+            10
+        )
+
+        heading_layout = QHBoxLayout()
+
+        section_title = QLabel(
+            "SCAN RESULTS"
+        )
+
+        section_title.setObjectName(
+            "sectionTitle"
+        )
+
         self.summary_label = QLabel(
-            "Scanned files: 0 | "
-            "Clean: 0 | "
+            "Scanned: 0   |   "
+            "Clean: 0   |   "
             "Threats: 0"
+        )
+
+        self.summary_label.setObjectName(
+            "summaryLabel"
+        )
+
+        heading_layout.addWidget(
+            section_title
+        )
+
+        heading_layout.addStretch()
+
+        heading_layout.addWidget(
+            self.summary_label
         )
 
         self.results_table = QTableWidget()
@@ -217,8 +661,54 @@ class MainWindow(QWidget):
             QTableWidget.SingleSelection
         )
 
-        log_title = QLabel(
-            "ClamAV Log"
+        self.results_table.setAlternatingRowColors(
+            True
+        )
+
+        panel_layout.addLayout(
+            heading_layout
+        )
+
+        panel_layout.addWidget(
+            self.results_table
+        )
+
+        return panel
+
+
+    # =============================================
+    # Log panel
+    # =============================================
+
+    def create_log_panel(self):
+
+        panel = QFrame()
+
+        panel.setObjectName(
+            "sectionPanel"
+        )
+
+        layout = QVBoxLayout(
+            panel
+        )
+
+        layout.setContentsMargins(
+            18,
+            15,
+            18,
+            15,
+        )
+
+        layout.setSpacing(
+            10
+        )
+
+        title = QLabel(
+            "ACTIVITY LOG"
+        )
+
+        title.setObjectName(
+            "sectionTitle"
         )
 
         self.log_output = QTextEdit()
@@ -227,79 +717,15 @@ class MainWindow(QWidget):
             True
         )
 
-        main_layout.addWidget(
+        layout.addWidget(
             title
         )
 
-        main_layout.addWidget(
-            self.engine_status_label
+        layout.addWidget(
+            self.log_output
         )
 
-        main_layout.addWidget(
-            self.version_label
-        )
-
-        main_layout.addWidget(
-            self.database_label
-        )
-
-        main_layout.addWidget(
-            self.operation_status_label
-        )
-
-        main_layout.addWidget(
-            self.quarantine_count_label
-        )
-
-        main_layout.addLayout(
-            action_layout
-        )
-
-        main_layout.addWidget(
-            self.summary_label
-        )
-
-        main_layout.addWidget(
-            self.results_table,
-            3,
-        )
-
-        main_layout.addWidget(
-            log_title
-        )
-
-        main_layout.addWidget(
-            self.log_output,
-            2,
-        )
-
-        self.setLayout(
-            main_layout
-        )
-
-        self.update_button.clicked.connect(
-            self.update_database
-        )
-
-        self.scan_file_button.clicked.connect(
-            self.scan_file
-        )
-
-        self.scan_folder_button.clicked.connect(
-            self.scan_folder
-        )
-
-        self.quarantine_selected_button.clicked.connect(
-            self.quarantine_selected
-        )
-
-        self.open_quarantine_button.clicked.connect(
-            self.open_quarantine
-        )
-
-        self.clear_results_button.clicked.connect(
-            self.clear_results
-        )
+        return panel
 
 
     # =============================================
@@ -319,20 +745,33 @@ class MainWindow(QWidget):
         if not self.clamav_directory:
 
             self.engine_status_label.setText(
-                "ClamAV: Not found"
+                "Not installed"
             )
 
             self.version_label.setText(
-                "Engine: Unavailable"
+                "ClamAV installation required"
             )
 
             self.database_label.setText(
-                "Database: Unavailable"
+                "Unavailable"
             )
 
-            self.operation_status_label.setText(
-                "Status: ClamAV installation "
-                "required"
+            self.database_detail_label.setText(
+                "ClamAV engine not detected"
+            )
+
+            self.set_security_state(
+                "Protection unavailable",
+                (
+                    "Install ClamAV before "
+                    "using local threat "
+                    "detection."
+                ),
+                "OFFLINE",
+            )
+
+            self.set_operation_status(
+                "ACTION REQUIRED"
             )
 
             self.set_operation_buttons_enabled(
@@ -357,27 +796,55 @@ class MainWindow(QWidget):
         )
 
         self.engine_status_label.setText(
-            "ClamAV: Installed"
+            "Installed"
         )
 
         self.version_label.setText(
-            f"Engine: {version}"
+            version
         )
 
         if database_is_ready():
 
             self.database_label.setText(
-                "Database: Ready"
+                "Ready"
+            )
+
+            self.database_detail_label.setText(
+                "Virus signatures available"
+            )
+
+            self.set_security_state(
+                "Local protection is ready",
+                (
+                    "ClamAV is installed and "
+                    "the local signature "
+                    "database is available."
+                ),
+                "PROTECTED",
             )
 
         else:
 
             self.database_label.setText(
-                "Database: Update required"
+                "Update required"
             )
 
-        self.operation_status_label.setText(
-            "Status: Ready"
+            self.database_detail_label.setText(
+                "Virus signatures unavailable"
+            )
+
+            self.set_security_state(
+                "Database update required",
+                (
+                    "Update the signature "
+                    "database before scanning "
+                    "files."
+                ),
+                "ATTENTION",
+            )
+
+        self.set_operation_status(
+            "READY"
         )
 
         self.log_output.append(
@@ -396,6 +863,40 @@ class MainWindow(QWidget):
 
         self.log_output.append(
             "Startup diagnostics completed."
+        )
+
+
+    # =============================================
+    # Dashboard state
+    # =============================================
+
+    def set_security_state(
+        self,
+        title,
+        message,
+        state,
+    ):
+
+        self.security_title_label.setText(
+            title
+        )
+
+        self.security_message_label.setText(
+            message
+        )
+
+        self.security_state_label.setText(
+            state
+        )
+
+
+    def set_operation_status(
+        self,
+        status,
+    ):
+
+        self.operation_status_label.setText(
+            status
         )
 
 
@@ -432,7 +933,7 @@ class MainWindow(QWidget):
             False
         )
 
-        self.operation_status_label.setText(
+        self.set_operation_status(
             status
         )
 
@@ -474,7 +975,7 @@ class MainWindow(QWidget):
 
         self.start_command(
             command,
-            "Status: Updating database...",
+            "UPDATING",
             "update",
         )
 
@@ -525,7 +1026,7 @@ class MainWindow(QWidget):
 
         self.start_command(
             command,
-            "Status: Scanning file...",
+            "SCANNING",
             "scan",
         )
 
@@ -560,7 +1061,7 @@ class MainWindow(QWidget):
 
         self.start_command(
             command,
-            "Status: Scanning folder...",
+            "SCANNING",
             "scan",
         )
 
@@ -616,6 +1117,16 @@ class MainWindow(QWidget):
 
             self.threat_count += 1
 
+            self.set_security_state(
+                "Threat detected",
+                (
+                    "PegaShield detected a "
+                    "potentially unsafe file. "
+                    "Review the scan results."
+                ),
+                "THREAT",
+            )
+
         self.update_summary()
 
 
@@ -627,8 +1138,9 @@ class MainWindow(QWidget):
         )
 
         self.summary_label.setText(
-            f"Scanned files: {total} | "
-            f"Clean: {self.clean_file_count} | "
+            f"Scanned: {total}   |   "
+            f"Clean: {self.clean_file_count}"
+            "   |   "
             f"Threats: {self.threat_count}"
         )
 
@@ -718,7 +1230,7 @@ class MainWindow(QWidget):
 
             QMessageBox.information(
                 self,
-                "Clean File",
+                "File Not Eligible",
                 (
                     "Only detected threats "
                     "can be quarantined."
@@ -780,8 +1292,18 @@ class MainWindow(QWidget):
                 "Quarantined"
             )
 
-            self.operation_status_label.setText(
-                "Status: Threat quarantined"
+            self.set_operation_status(
+                "QUARANTINED"
+            )
+
+            self.set_security_state(
+                "Threat isolated",
+                (
+                    "The detected file was "
+                    "moved into PegaShield "
+                    "quarantine."
+                ),
+                "SECURED",
             )
 
             self.log_output.append(
@@ -818,10 +1340,25 @@ class MainWindow(QWidget):
             load_quarantine_records()
         )
 
-        self.quarantine_count_label.setText(
-            "Quarantine: "
-            f"{len(records)} items"
+        count = len(
+            records
         )
+
+        self.quarantine_count_label.setText(
+            f"{count} items"
+        )
+
+        if count == 1:
+
+            self.quarantine_detail_label.setText(
+                "1 isolated threat"
+            )
+
+        else:
+
+            self.quarantine_detail_label.setText(
+                f"{count} isolated threats"
+            )
 
 
     def open_quarantine(self):
@@ -849,7 +1386,7 @@ class MainWindow(QWidget):
 
 
     # =============================================
-    # GUI updates
+    # Worker output
     # =============================================
 
     def append_log(
@@ -873,24 +1410,60 @@ class MainWindow(QWidget):
 
         if return_code == 0:
 
-            self.operation_status_label.setText(
-                "Status: Ready"
+            self.set_operation_status(
+                "READY"
             )
+
+            if database_is_ready():
+
+                self.database_label.setText(
+                    "Ready"
+                )
+
+                self.database_detail_label.setText(
+                    "Virus signatures available"
+                )
+
+                if self.threat_count == 0:
+
+                    self.set_security_state(
+                        "Local protection is ready",
+                        (
+                            "ClamAV is installed "
+                            "and the local "
+                            "signature database "
+                            "is available."
+                        ),
+                        "PROTECTED",
+                    )
 
         elif return_code == 1:
 
-            self.operation_status_label.setText(
-                "Status: Threat detected"
+            self.set_operation_status(
+                "THREAT DETECTED"
+            )
+
+            self.set_security_state(
+                "Threat detected",
+                (
+                    "Review the scan results "
+                    "and quarantine the "
+                    "detected file."
+                ),
+                "THREAT",
             )
 
         else:
 
-            self.operation_status_label.setText(
-                "Status: Operation failed"
+            self.set_operation_status(
+                "FAILED"
             )
 
-        if database_is_ready():
-
-            self.database_label.setText(
-                "Database: Ready"
+            self.set_security_state(
+                "Operation failed",
+                (
+                    "Review the activity log "
+                    "for details."
+                ),
+                "ERROR",
             )
