@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QScrollArea,
+    QSizePolicy,
 )
 
 from app.core.clamav import (
@@ -70,7 +72,11 @@ class ScanDropZone(QFrame):
         )
 
         self.setMinimumHeight(
-            92
+            68
+        )
+
+        self.setMaximumHeight(
+            82
         )
 
         layout = QVBoxLayout(
@@ -290,13 +296,13 @@ class MainWindow(QWidget):
         )
 
         self.setMinimumSize(
-            1050,
-            760,
+            900,
+            650,
         )
 
         self.resize(
-            1250,
-            900,
+            1180,
+            800,
         )
 
         self.build_interface()
@@ -312,19 +318,46 @@ class MainWindow(QWidget):
 
     def build_interface(self):
 
-        main_layout = QVBoxLayout(
+        window_layout = QVBoxLayout(
             self
         )
 
+        window_layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+
+        self.scroll_area = QScrollArea()
+
+        self.scroll_area.setWidgetResizable(
+            True
+        )
+
+        self.scroll_area.setFrameShape(
+            QFrame.NoFrame
+        )
+
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
+        content = QWidget()
+
+        main_layout = QVBoxLayout(
+            content
+        )
+
         main_layout.setContentsMargins(
-            24,
-            20,
-            24,
-            20,
+            18,
+            16,
+            18,
+            16,
         )
 
         main_layout.setSpacing(
-            16
+            11
         )
 
         main_layout.addWidget(
@@ -356,15 +389,22 @@ class MainWindow(QWidget):
         )
 
         main_layout.addWidget(
-            self.create_results_panel(),
-            3,
+            self.create_results_panel()
         )
 
         main_layout.addWidget(
-            self.create_log_panel(),
-            2,
+            self.create_log_panel()
         )
 
+        main_layout.addStretch()
+
+        self.scroll_area.setWidget(
+            content
+        )
+
+        window_layout.addWidget(
+            self.scroll_area
+        )
 
     # =============================================
     # Header
@@ -670,14 +710,14 @@ class MainWindow(QWidget):
         )
 
         panel_layout.setContentsMargins(
-            18,
-            15,
-            18,
-            15,
+            16,
+            12,
+            16,
+            12,
         )
 
         panel_layout.setSpacing(
-            12
+            9
         )
 
         section_title = QLabel(
@@ -688,10 +728,16 @@ class MainWindow(QWidget):
             "sectionTitle"
         )
 
-        button_layout = QHBoxLayout()
+        first_button_row = QHBoxLayout()
 
-        button_layout.setSpacing(
-            10
+        first_button_row.setSpacing(
+            9
+        )
+
+        second_button_row = QHBoxLayout()
+
+        second_button_row.setSpacing(
+            9
         )
 
         self.scan_file_button = QPushButton(
@@ -730,27 +776,27 @@ class MainWindow(QWidget):
             "Clear Results"
         )
 
-        button_layout.addWidget(
+        first_button_row.addWidget(
             self.scan_file_button
         )
 
-        button_layout.addWidget(
+        first_button_row.addWidget(
             self.scan_folder_button
         )
 
-        button_layout.addWidget(
+        first_button_row.addWidget(
             self.update_button
         )
 
-        button_layout.addWidget(
+        second_button_row.addWidget(
             self.quarantine_selected_button
         )
 
-        button_layout.addWidget(
+        second_button_row.addWidget(
             self.open_quarantine_button
         )
 
-        button_layout.addWidget(
+        second_button_row.addWidget(
             self.clear_results_button
         )
 
@@ -759,7 +805,11 @@ class MainWindow(QWidget):
         )
 
         panel_layout.addLayout(
-            button_layout
+            first_button_row
+        )
+
+        panel_layout.addLayout(
+            second_button_row
         )
 
         self.update_button.clicked.connect(
@@ -787,8 +837,7 @@ class MainWindow(QWidget):
         )
 
         return panel
-
-
+    
     # =============================================
     # Results panel
     # =============================================
@@ -801,19 +850,24 @@ class MainWindow(QWidget):
             "sectionPanel"
         )
 
+        panel.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Expanding,
+        )
+
         panel_layout = QVBoxLayout(
             panel
         )
 
         panel_layout.setContentsMargins(
-            18,
-            15,
-            18,
-            15,
+            16,
+            12,
+            16,
+            12,
         )
 
         panel_layout.setSpacing(
-            10
+            8
         )
 
         heading_layout = QHBoxLayout()
@@ -847,6 +901,10 @@ class MainWindow(QWidget):
         )
 
         self.results_table = QTableWidget()
+
+        self.results_table.setMinimumHeight(
+            230
+        )
 
         self.results_table.setColumnCount(
             3
@@ -906,7 +964,6 @@ class MainWindow(QWidget):
 
         return panel
 
-
     # =============================================
     # Log panel
     # =============================================
@@ -924,15 +981,17 @@ class MainWindow(QWidget):
         )
 
         layout.setContentsMargins(
-            18,
-            15,
-            18,
-            15,
+            16,
+            12,
+            16,
+            12,
         )
 
         layout.setSpacing(
-            10
+            8
         )
+
+        heading_layout = QHBoxLayout()
 
         title = QLabel(
             "ACTIVITY LOG"
@@ -942,14 +1001,50 @@ class MainWindow(QWidget):
             "sectionTitle"
         )
 
+        self.toggle_log_button = QPushButton(
+            "Show Log"
+        )
+
+        self.toggle_log_button.setObjectName(
+            "compactButton"
+        )
+
+        self.toggle_log_button.setMaximumWidth(
+            110
+        )
+
+        self.toggle_log_button.clicked.connect(
+            self.toggle_activity_log
+        )
+
+        heading_layout.addWidget(
+            title
+        )
+
+        heading_layout.addStretch()
+
+        heading_layout.addWidget(
+            self.toggle_log_button
+        )
+
         self.log_output = QTextEdit()
 
         self.log_output.setReadOnly(
             True
         )
 
-        layout.addWidget(
-            title
+        self.log_output.setMinimumHeight(
+            170
+        )
+
+        self.log_output.setMaximumHeight(
+            250
+        )
+
+        self.log_output.hide()
+
+        layout.addLayout(
+            heading_layout
         )
 
         layout.addWidget(
@@ -958,6 +1053,27 @@ class MainWindow(QWidget):
 
         return panel
 
+    # =============================================
+    # Toggle method
+    # =============================================
+
+    def toggle_activity_log(self):
+
+        if self.log_output.isVisible():
+
+            self.log_output.hide()
+
+            self.toggle_log_button.setText(
+                "Show Log"
+            )
+
+        else:
+
+            self.log_output.show()
+
+            self.toggle_log_button.setText(
+                "Hide Log"
+            )
 
     # =============================================
     # Startup diagnostics
