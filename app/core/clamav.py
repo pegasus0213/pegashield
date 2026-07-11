@@ -2,9 +2,16 @@ import os
 import re
 import subprocess
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import (
+    QMutex,
+    QMutexLocker,
+    QThread,
+    Signal,
+)
 
-from app.core.paths import DATABASE_DIRECTORY
+from app.core.paths import (
+    DATABASE_DIRECTORY,
+)
 
 
 # =================================================
@@ -33,7 +40,9 @@ def find_clamav_directory():
     Return None when ClamAV cannot be found.
     """
 
-    for directory in COMMON_CLAMAV_DIRECTORIES:
+    for directory in (
+        COMMON_CLAMAV_DIRECTORIES
+    ):
 
         clamscan_path = os.path.join(
             directory,
@@ -46,9 +55,14 @@ def find_clamav_directory():
         )
 
         if (
-            os.path.isfile(clamscan_path)
-            and os.path.isfile(freshclam_path)
+            os.path.isfile(
+                clamscan_path
+            )
+            and os.path.isfile(
+                freshclam_path
+            )
         ):
+
             return directory
 
     return None
@@ -58,7 +72,7 @@ def get_clamav_executable_paths(
     clamav_directory,
 ):
     """
-    Build the paths to the required ClamAV
+    Build paths to the required ClamAV
     executables.
     """
 
@@ -161,8 +175,8 @@ class CommandWorker(QThread):
     """
     Run ClamAV commands outside the GUI thread.
 
-    This prevents the PegaShield interface from
-    freezing during database updates and scans.
+    The active subprocess is stored so PegaShield
+    can safely request cancellation.
     """
 
     log_signal = Signal(str)
@@ -173,7 +187,9 @@ class CommandWorker(QThread):
         str,
     )
 
-    operation_finished = Signal(int)
+    operation_finished = Signal(
+        int
+    )
 
 
     def __init__(
@@ -188,6 +204,14 @@ class CommandWorker(QThread):
 
         self.operation_type = (
             operation_type
+        )
+
+        self.process = None
+
+        self.cancel_requested = False
+
+        self.process_mutex = (
+            QMutex()
         )
 
 
@@ -221,7 +245,6 @@ class CommandWorker(QThread):
 
             return
 
-
         threat_match = re.match(
             r"^(.*): (.+) FOUND$",
             line,
@@ -248,12 +271,43 @@ class CommandWorker(QThread):
             )
 
 
+    def cancel(
+        self,
+    ):
+        """
+        Request cancellation and terminate the
+        active ClamAV process when it is running.
+        """
+
+        self.cancel_requested = True
+
+        with QMutexLocker(
+            self.process_mutex
+        ):
+
+            process = self.process
+
+            if (
+                process is not None
+                and process.poll() is None
+            ):
+
+                try:
+
+                    process.terminate()
+
+                except OSError:
+
+                    pass
+
+
     def run(
         self,
     ):
         """
-        Execute the command and stream its output
-        to the PegaShield interface.
+        Execute the command, stream output, and
+        report whether it completed, failed, or
+        was cancelled.
         """
 
         return_code = -1
@@ -269,6 +323,22 @@ class CommandWorker(QThread):
                 errors="replace",
             )
 
+            with QMutexLocker(
+                self.process_mutex
+            ):
+
+                self.process = process
+
+            if self.cancel_requested:
+
+                try:
+
+                    process.terminate()
+
+                except OSError:
+
+                    pass
+
             if process.stdout:
 
                 for line in process.stdout:
@@ -277,9 +347,11 @@ class CommandWorker(QThread):
                         line.rstrip()
                     )
 
-                    self.log_signal.emit(
-                        clean_line
-                    )
+                    if clean_line:
+
+                        self.log_signal.emit(
+                            clean_line
+                        )
 
                     if (
                         self.operation_type
@@ -290,13 +362,42 @@ class CommandWorker(QThread):
                             clean_line
                         )
 
+                    if self.cancel_requested:
+
+                        break
+
+            if (
+                self.cancel_requested
+                and process.poll() is None
+            ):
+
+                try:
+
+                    process.terminate()
+
+                    process.wait(
+                        timeout=3
+                    )
+
+                except subprocess.TimeoutExpired:
+
+                    process.kill()
+
             process.wait()
 
             return_code = (
                 process.returncode
             )
 
-            if return_code == 0:
+            if self.cancel_requested:
+
+                return_code = -2
+
+                self.log_signal.emit(
+                    "Operation cancelled by user."
+                )
+
+            elif return_code == 0:
 
                 self.log_signal.emit(
                     "Operation completed "
@@ -326,9 +427,27 @@ class CommandWorker(QThread):
 
         except Exception as error:
 
-            self.log_signal.emit(
-                f"ERROR: {error}"
-            )
+            if self.cancel_requested:
+
+                return_code = -2
+
+                self.log_signal.emit(
+                    "Operation cancelled by user."
+                )
+
+            else:
+
+                self.log_signal.emit(
+                    f"ERROR: {error}"
+                )
+
+        finally:
+
+            with QMutexLocker(
+                self.process_mutex
+            ):
+
+                self.process = None
 
         self.operation_finished.emit(
             return_code

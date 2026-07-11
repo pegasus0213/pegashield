@@ -775,6 +775,20 @@ class MainWindow(QWidget):
         self.clear_results_button = QPushButton(
             "Clear Results"
         )
+        
+        self.cancel_operation_button = (
+            QPushButton(
+                "Cancel Operation"
+            )
+        )
+
+        self.cancel_operation_button.setObjectName(
+            "dangerButton"
+        )
+
+        self.cancel_operation_button.setEnabled(
+            False
+        )
 
         first_button_row.addWidget(
             self.scan_file_button
@@ -798,6 +812,10 @@ class MainWindow(QWidget):
 
         second_button_row.addWidget(
             self.clear_results_button
+        )
+
+        second_button_row.addWidget(
+            self.cancel_operation_button
         )
 
         panel_layout.addWidget(
@@ -834,6 +852,10 @@ class MainWindow(QWidget):
 
         self.clear_results_button.clicked.connect(
             self.clear_results
+        )
+        
+        self.cancel_operation_button.clicked.connect(
+            self.cancel_current_operation
         )
 
         return panel
@@ -1298,6 +1320,10 @@ class MainWindow(QWidget):
         self.set_operation_buttons_enabled(
             False
         )
+        
+        self.cancel_operation_button.setEnabled(
+            True
+        )
 
         self.set_operation_status(
             status
@@ -1322,6 +1348,34 @@ class MainWindow(QWidget):
 
         self.worker.start()
 
+    def cancel_current_operation(
+        self,
+    ):
+        """
+        Request cancellation of the active
+        ClamAV scan or database update.
+        """
+
+        if (
+            self.worker is None
+            or not self.worker.isRunning()
+        ):
+
+            return
+
+        self.set_operation_status(
+            "CANCELLING"
+        )
+
+        self.cancel_operation_button.setEnabled(
+            False
+        )
+
+        self.log_output.append(
+            "\nCancellation requested..."
+        )
+
+        self.worker.cancel()
 
     # =============================================
     # Database update
@@ -1836,7 +1890,27 @@ class MainWindow(QWidget):
             True
         )
 
-        if return_code == 0:
+        self.cancel_operation_button.setEnabled(
+            False
+        )
+
+        if return_code == -2:
+
+            self.set_operation_status(
+                "CANCELLED"
+            )
+
+            self.set_security_state(
+                "Operation cancelled",
+                (
+                    "The active PegaShield "
+                    "operation was stopped by "
+                    "the user."
+                ),
+                "CANCELLED",
+            )
+
+        elif return_code == 0:
 
             self.set_operation_status(
                 "READY"

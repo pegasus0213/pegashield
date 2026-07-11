@@ -554,4 +554,41 @@ QLabel#dropZoneMessage {
     font-size: 9pt;
 }
 
+/* =================================================
+   Destructive and cancellation actions
+   ================================================= */
+
+QPushButton#dangerButton {
+    background-color: #3A1720;
+
+    color: #FFB4BF;
+
+    border: 1px solid #773140;
+}
+
+
+QPushButton#dangerButton:hover {
+    background-color: #55202C;
+
+    color: #FFFFFF;
+
+    border-color: #C64B61;
+}
+
+
+QPushButton#dangerButton:pressed {
+    background-color: #2B1017;
+
+    border-color: #9B394B;
+}
+
+
+QPushButton#dangerButton:disabled {
+    background-color: #141821;
+
+    color: #526071;
+
+    border-color: #242E3C;
+}
+
 """
