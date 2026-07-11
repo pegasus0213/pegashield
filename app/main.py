@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import subprocess
 
@@ -7,8 +8,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -54,13 +58,10 @@ COMMON_CLAMAV_DIRECTORIES = [
 
 
 # =================================================
-# ClamAV detection functions
+# ClamAV detection
 # =================================================
 
 def find_clamav_directory():
-    """
-    Search common Windows locations for ClamAV.
-    """
 
     for directory in COMMON_CLAMAV_DIRECTORIES:
 
@@ -84,9 +85,6 @@ def find_clamav_directory():
 
 
 def get_clamav_version(clamscan_path):
-    """
-    Get the installed ClamAV engine version.
-    """
 
     try:
 
@@ -123,13 +121,81 @@ class CommandWorker(QThread):
 
     log_signal = Signal(str)
 
+    scan_result_signal = Signal(
+        str,
+        str,
+        str,
+    )
+
     operation_finished = Signal(int)
 
-    def __init__(self, command):
+    def __init__(
+        self,
+        command,
+        operation_type,
+    ):
 
         super().__init__()
 
         self.command = command
+
+        self.operation_type = (
+            operation_type
+        )
+
+
+    def parse_scan_line(
+        self,
+        line,
+    ):
+
+        clean_match = re.match(
+            r"^(.*): OK$",
+            line,
+        )
+
+        if clean_match:
+
+            file_path = (
+                clean_match
+                .group(1)
+                .strip()
+            )
+
+            self.scan_result_signal.emit(
+                file_path,
+                "Clean",
+                "",
+            )
+
+            return
+
+
+        threat_match = re.match(
+            r"^(.*): (.+) FOUND$",
+            line,
+        )
+
+        if threat_match:
+
+            file_path = (
+                threat_match
+                .group(1)
+                .strip()
+            )
+
+            threat_name = (
+                threat_match
+                .group(2)
+                .strip()
+            )
+
+            self.scan_result_signal.emit(
+                file_path,
+                "Threat detected",
+                threat_name,
+            )
+
 
     def run(self):
 
@@ -143,24 +209,41 @@ class CommandWorker(QThread):
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                errors="replace",
             )
 
             if process.stdout:
 
                 for line in process.stdout:
 
-                    self.log_signal.emit(
+                    clean_line = (
                         line.rstrip()
                     )
 
+                    self.log_signal.emit(
+                        clean_line
+                    )
+
+                    if (
+                        self.operation_type
+                        == "scan"
+                    ):
+
+                        self.parse_scan_line(
+                            clean_line
+                        )
+
             process.wait()
 
-            return_code = process.returncode
+            return_code = (
+                process.returncode
+            )
 
             if return_code == 0:
 
                 self.log_signal.emit(
-                    "Operation completed successfully."
+                    "Operation completed "
+                    "successfully."
                 )
 
             elif return_code == 1:
@@ -213,6 +296,10 @@ class MainWindow(QWidget):
 
         self.freshclam_path = None
 
+        self.clean_file_count = 0
+
+        self.threat_count = 0
+
         self.create_data_directories()
 
         self.create_freshclam_configuration()
@@ -222,8 +309,8 @@ class MainWindow(QWidget):
         )
 
         self.resize(
-            900,
-            650,
+            1100,
+            750,
         )
 
         self.build_interface()
@@ -232,7 +319,7 @@ class MainWindow(QWidget):
 
 
     # =============================================
-    # PegaShield setup
+    # Application setup
     # =============================================
 
     def create_data_directories(self):
@@ -254,8 +341,10 @@ class MainWindow(QWidget):
     def create_freshclam_configuration(self):
 
         configuration = (
-            f"DatabaseDirectory {DATABASE_DIRECTORY}\n"
-            "DatabaseMirror database.clamav.net\n"
+            f"DatabaseDirectory "
+            f"{DATABASE_DIRECTORY}\n"
+            "DatabaseMirror "
+            "database.clamav.net\n"
             "Checks 12\n"
         )
 
@@ -298,6 +387,7 @@ class MainWindow(QWidget):
             "Status: Starting..."
         )
 
+
         self.update_button = QPushButton(
             "Update Database"
         )
@@ -310,14 +400,82 @@ class MainWindow(QWidget):
             "Scan Folder"
         )
 
-        scan_buttons_layout = QHBoxLayout()
+        self.clear_results_button = QPushButton(
+            "Clear Results"
+        )
 
-        scan_buttons_layout.addWidget(
+
+        action_layout = QHBoxLayout()
+
+        action_layout.addWidget(
+            self.update_button
+        )
+
+        action_layout.addWidget(
             self.scan_file_button
         )
 
-        scan_buttons_layout.addWidget(
+        action_layout.addWidget(
             self.scan_folder_button
+        )
+
+        action_layout.addWidget(
+            self.clear_results_button
+        )
+
+
+        self.summary_label = QLabel(
+            "Scanned files: 0 | "
+            "Clean: 0 | "
+            "Threats: 0"
+        )
+
+
+        self.results_table = QTableWidget()
+
+        self.results_table.setColumnCount(
+            3
+        )
+
+        self.results_table.setHorizontalHeaderLabels(
+            [
+                "File",
+                "Status",
+                "Threat",
+            ]
+        )
+
+        table_header = (
+            self.results_table
+            .horizontalHeader()
+        )
+
+        table_header.setSectionResizeMode(
+            0,
+            QHeaderView.Stretch,
+        )
+
+        table_header.setSectionResizeMode(
+            1,
+            QHeaderView.ResizeToContents,
+        )
+
+        table_header.setSectionResizeMode(
+            2,
+            QHeaderView.Stretch,
+        )
+
+        self.results_table.setEditTriggers(
+            QTableWidget.NoEditTriggers
+        )
+
+        self.results_table.setSelectionBehavior(
+            QTableWidget.SelectRows
+        )
+
+
+        log_title = QLabel(
+            "ClamAV Log"
         )
 
         self.log_output = QTextEdit()
@@ -325,6 +483,7 @@ class MainWindow(QWidget):
         self.log_output.setReadOnly(
             True
         )
+
 
         main_layout.addWidget(
             title
@@ -346,21 +505,32 @@ class MainWindow(QWidget):
             self.operation_status_label
         )
 
-        main_layout.addWidget(
-            self.update_button
-        )
-
         main_layout.addLayout(
-            scan_buttons_layout
+            action_layout
         )
 
         main_layout.addWidget(
-            self.log_output
+            self.summary_label
+        )
+
+        main_layout.addWidget(
+            self.results_table,
+            3,
+        )
+
+        main_layout.addWidget(
+            log_title
+        )
+
+        main_layout.addWidget(
+            self.log_output,
+            2,
         )
 
         self.setLayout(
             main_layout
         )
+
 
         self.update_button.clicked.connect(
             self.update_database
@@ -374,9 +544,13 @@ class MainWindow(QWidget):
             self.scan_folder
         )
 
+        self.clear_results_button.clicked.connect(
+            self.clear_results
+        )
+
 
     # =============================================
-    # ClamAV startup diagnostics
+    # Startup diagnostics
     # =============================================
 
     def detect_clamav(self):
@@ -404,27 +578,20 @@ class MainWindow(QWidget):
             )
 
             self.operation_status_label.setText(
-                "Status: ClamAV installation required"
+                "Status: ClamAV installation "
+                "required"
             )
 
-            self.update_button.setEnabled(
-                False
-            )
-
-            self.scan_file_button.setEnabled(
-                False
-            )
-
-            self.scan_folder_button.setEnabled(
+            self.set_operation_buttons_enabled(
                 False
             )
 
             self.log_output.append(
-                "ERROR: ClamAV was not found "
-                "in a supported installation location."
+                "ERROR: ClamAV was not found."
             )
 
             return
+
 
         self.clamscan_path = os.path.join(
             self.clamav_directory,
@@ -465,11 +632,8 @@ class MainWindow(QWidget):
         )
 
         self.log_output.append(
-            "ClamAV detected:"
-        )
-
-        self.log_output.append(
-            self.clamav_directory
+            f"ClamAV detected: "
+            f"{self.clamav_directory}"
         )
 
         self.log_output.append(
@@ -477,11 +641,8 @@ class MainWindow(QWidget):
         )
 
         self.log_output.append(
-            "Database directory:"
-        )
-
-        self.log_output.append(
-            DATABASE_DIRECTORY
+            f"Database directory: "
+            f"{DATABASE_DIRECTORY}"
         )
 
         self.log_output.append(
@@ -500,41 +661,47 @@ class MainWindow(QWidget):
             "bytecode.cld",
         ]
 
-        for filename in database_files:
-
-            database_path = os.path.join(
-                DATABASE_DIRECTORY,
-                filename,
+        return any(
+            os.path.isfile(
+                os.path.join(
+                    DATABASE_DIRECTORY,
+                    filename,
+                )
             )
-
-            if os.path.isfile(
-                database_path
-            ):
-
-                return True
-
-        return False
+            for filename in database_files
+        )
 
 
     # =============================================
-    # Background command handling
+    # Command handling
     # =============================================
+
+    def set_operation_buttons_enabled(
+        self,
+        enabled,
+    ):
+
+        self.update_button.setEnabled(
+            enabled
+        )
+
+        self.scan_file_button.setEnabled(
+            enabled
+        )
+
+        self.scan_folder_button.setEnabled(
+            enabled
+        )
+
 
     def start_command(
         self,
         command,
         status,
+        operation_type,
     ):
 
-        self.update_button.setEnabled(
-            False
-        )
-
-        self.scan_file_button.setEnabled(
-            False
-        )
-
-        self.scan_folder_button.setEnabled(
+        self.set_operation_buttons_enabled(
             False
         )
 
@@ -543,11 +710,16 @@ class MainWindow(QWidget):
         )
 
         self.worker = CommandWorker(
-            command
+            command,
+            operation_type,
         )
 
         self.worker.log_signal.connect(
             self.append_log
+        )
+
+        self.worker.scan_result_signal.connect(
+            self.add_scan_result
         )
 
         self.worker.operation_finished.connect(
@@ -576,12 +748,26 @@ class MainWindow(QWidget):
         self.start_command(
             command,
             "Status: Updating database...",
+            "update",
         )
 
 
     # =============================================
-    # Individual file scan
+    # Scan operations
     # =============================================
+
+    def prepare_new_scan(self):
+
+        self.results_table.setRowCount(
+            0
+        )
+
+        self.clean_file_count = 0
+
+        self.threat_count = 0
+
+        self.update_summary()
+
 
     def scan_file(self):
 
@@ -596,8 +782,11 @@ class MainWindow(QWidget):
 
             return
 
+        self.prepare_new_scan()
+
         self.log_output.append(
-            f"\nStarting file scan: {file_path}"
+            f"\nStarting file scan: "
+            f"{file_path}"
         )
 
         command = [
@@ -610,12 +799,9 @@ class MainWindow(QWidget):
         self.start_command(
             command,
             "Status: Scanning file...",
+            "scan",
         )
 
-
-    # =============================================
-    # Recursive folder scan
-    # =============================================
 
     def scan_folder(self):
 
@@ -630,8 +816,11 @@ class MainWindow(QWidget):
 
             return
 
+        self.prepare_new_scan()
+
         self.log_output.append(
-            f"\nStarting folder scan: {folder_path}"
+            f"\nStarting folder scan: "
+            f"{folder_path}"
         )
 
         command = [
@@ -645,7 +834,91 @@ class MainWindow(QWidget):
         self.start_command(
             command,
             "Status: Scanning folder...",
+            "scan",
         )
+
+
+    # =============================================
+    # Structured scan results
+    # =============================================
+
+    def add_scan_result(
+        self,
+        file_path,
+        status,
+        threat_name,
+    ):
+
+        row = (
+            self.results_table.rowCount()
+        )
+
+        self.results_table.insertRow(
+            row
+        )
+
+        self.results_table.setItem(
+            row,
+            0,
+            QTableWidgetItem(
+                file_path
+            ),
+        )
+
+        self.results_table.setItem(
+            row,
+            1,
+            QTableWidgetItem(
+                status
+            ),
+        )
+
+        self.results_table.setItem(
+            row,
+            2,
+            QTableWidgetItem(
+                threat_name
+            ),
+        )
+
+        if status == "Clean":
+
+            self.clean_file_count += 1
+
+        elif status == "Threat detected":
+
+            self.threat_count += 1
+
+        self.update_summary()
+
+
+    def update_summary(self):
+
+        total = (
+            self.clean_file_count
+            + self.threat_count
+        )
+
+        self.summary_label.setText(
+            f"Scanned files: {total} | "
+            f"Clean: "
+            f"{self.clean_file_count} | "
+            f"Threats: "
+            f"{self.threat_count}"
+        )
+
+
+    def clear_results(self):
+
+        self.results_table.setRowCount(
+            0
+        )
+
+        self.clean_file_count = 0
+
+        self.threat_count = 0
+
+        self.update_summary()
 
 
     # =============================================
@@ -667,15 +940,7 @@ class MainWindow(QWidget):
         return_code,
     ):
 
-        self.update_button.setEnabled(
-            True
-        )
-
-        self.scan_file_button.setEnabled(
-            True
-        )
-
-        self.scan_folder_button.setEnabled(
+        self.set_operation_buttons_enabled(
             True
         )
 
