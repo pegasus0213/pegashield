@@ -1,10 +1,5 @@
-import json
 import os
-import shutil
 import sys
-import uuid
-
-from datetime import datetime
 
 from app.core.clamav import (
     CommandWorker,
@@ -17,9 +12,14 @@ from app.core.clamav import (
 from app.core.paths import (
     DATABASE_DIRECTORY,
     FRESHCLAM_CONFIG_PATH,
-    QUARANTINE_DIRECTORY,
-    QUARANTINE_METADATA_PATH,
     initialize_application_data,
+)
+
+from app.services.quarantine import (
+    delete_quarantined_file,
+    load_quarantine_records,
+    quarantine_file,
+    restore_quarantined_file,
 )
 
 from PySide6.QtCore import Signal
@@ -38,79 +38,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-
-# =================================================
-# Quarantine data functions
-# =================================================
-
-def load_quarantine_records():
-    """
-    Load quarantine metadata from the JSON file.
-    """
-
-    if not os.path.isfile(
-        QUARANTINE_METADATA_PATH
-    ):
-        return []
-
-    try:
-
-        with open(
-            QUARANTINE_METADATA_PATH,
-            "r",
-            encoding="utf-8",
-        ) as metadata_file:
-
-            records = json.load(
-                metadata_file
-            )
-
-        if isinstance(
-            records,
-            list,
-        ):
-            return records
-
-    except (
-        OSError,
-        json.JSONDecodeError,
-    ):
-        pass
-
-    return []
-
-
-def save_quarantine_records(
-    records,
-):
-    """
-    Save quarantine metadata safely using a
-    temporary file.
-    """
-
-    temporary_path = (
-        QUARANTINE_METADATA_PATH
-        + ".tmp"
-    )
-
-    with open(
-        temporary_path,
-        "w",
-        encoding="utf-8",
-    ) as metadata_file:
-
-        json.dump(
-            records,
-            metadata_file,
-            indent=4,
-            ensure_ascii=False,
-        )
-
-    os.replace(
-        temporary_path,
-        QUARANTINE_METADATA_PATH,
-    )
 
 
 # =================================================
@@ -377,31 +304,6 @@ class QuarantineWindow(QWidget):
 
             return
 
-        original_path = record.get(
-            "original_path",
-            "",
-        )
-
-        quarantine_path = record.get(
-            "quarantine_path",
-            "",
-        )
-
-        if not os.path.isfile(
-            quarantine_path
-        ):
-
-            QMessageBox.warning(
-                self,
-                "File Missing",
-                (
-                    "The quarantined file "
-                    "could not be found."
-                ),
-            )
-
-            return
-
         warning = QMessageBox.warning(
             self,
             "Restore Threat",
@@ -424,11 +326,18 @@ class QuarantineWindow(QWidget):
 
             return
 
+        overwrite = False
+
+        original_path = record.get(
+            "original_path",
+            "",
+        )
+
         if os.path.exists(
             original_path
         ):
 
-            overwrite = (
+            overwrite_answer = (
                 QMessageBox.question(
                     self,
                     "File Already Exists",
@@ -446,56 +355,21 @@ class QuarantineWindow(QWidget):
             )
 
             if (
-                overwrite
+                overwrite_answer
                 != QMessageBox.Yes
             ):
-                return
-
-            if os.path.isdir(
-                original_path
-            ):
-
-                QMessageBox.warning(
-                    self,
-                    "Restore Failed",
-                    (
-                        "The original path is "
-                        "currently a directory."
-                    ),
-                )
 
                 return
 
-            os.remove(
-                original_path
-            )
+            overwrite = True
 
         try:
 
-            original_directory = (
-                os.path.dirname(
-                    original_path
+            restored_path = (
+                restore_quarantined_file(
+                    record,
+                    overwrite=overwrite,
                 )
-            )
-
-            if original_directory:
-
-                os.makedirs(
-                    original_directory,
-                    exist_ok=True,
-                )
-
-            shutil.move(
-                quarantine_path,
-                original_path,
-            )
-
-            self.records.remove(
-                record
-            )
-
-            save_quarantine_records(
-                self.records
             )
 
             self.refresh_table()
@@ -508,7 +382,7 @@ class QuarantineWindow(QWidget):
                 (
                     "The file was restored "
                     "to:\n\n"
-                    f"{original_path}"
+                    f"{restored_path}"
                 ),
             )
 
@@ -556,29 +430,13 @@ class QuarantineWindow(QWidget):
             confirmation
             != QMessageBox.Yes
         ):
-            return
 
-        quarantine_path = record.get(
-            "quarantine_path",
-            "",
-        )
+            return
 
         try:
 
-            if os.path.isfile(
-                quarantine_path
-            ):
-
-                os.remove(
-                    quarantine_path
-                )
-
-            self.records.remove(
+            delete_quarantined_file(
                 record
-            )
-
-            save_quarantine_records(
-                self.records
             )
 
             self.refresh_table()
@@ -1276,6 +1134,7 @@ class MainWindow(QWidget):
             not file_item
             or not status_item
         ):
+
             return
 
         file_path = (
@@ -1347,55 +1206,14 @@ class MainWindow(QWidget):
             confirmation
             != QMessageBox.Yes
         ):
+
             return
-
-        quarantine_id = (
-            uuid.uuid4().hex
-        )
-
-        quarantine_path = os.path.join(
-            QUARANTINE_DIRECTORY,
-            f"{quarantine_id}.psq",
-        )
-
-        record = {
-            "id": quarantine_id,
-            "original_path": file_path,
-            "quarantine_path": (
-                quarantine_path
-            ),
-            "original_name": (
-                os.path.basename(
-                    file_path
-                )
-            ),
-            "threat_name": threat_name,
-            "quarantined_at": (
-                datetime.now()
-                .astimezone()
-                .isoformat(
-                    timespec="seconds"
-                )
-            ),
-        }
 
         try:
 
-            shutil.move(
+            quarantine_file(
                 file_path,
-                quarantine_path,
-            )
-
-            records = (
-                load_quarantine_records()
-            )
-
-            records.append(
-                record
-            )
-
-            save_quarantine_records(
-                records
+                threat_name,
             )
 
             status_item.setText(
@@ -1426,26 +1244,6 @@ class MainWindow(QWidget):
             )
 
         except Exception as error:
-
-            if (
-                os.path.isfile(
-                    quarantine_path
-                )
-                and not os.path.isfile(
-                    file_path
-                )
-            ):
-
-                try:
-
-                    shutil.move(
-                        quarantine_path,
-                        file_path,
-                    )
-
-                except Exception:
-
-                    pass
 
             QMessageBox.critical(
                 self,
