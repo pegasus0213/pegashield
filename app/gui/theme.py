@@ -499,5 +499,59 @@ QToolTip {
     border: 1px solid #385777;
     border-radius: 5px;
 }
+/* =================================================
+   Drag-and-drop scan area
+   ================================================= */
+
+QFrame#scanDropZone {
+    min-height: 90px;
+
+    background-color: #0A1728;
+
+    border: 2px dashed #315C8A;
+    border-radius: 13px;
+}
+
+
+QFrame#scanDropZone:hover {
+    background-color: #0D1E33;
+
+    border-color: #4C8FD8;
+}
+
+
+QFrame#scanDropZone[dragActive="true"] {
+    background-color: #102A46;
+
+    border: 2px solid #4EA1FF;
+}
+
+
+QFrame#scanDropZone:disabled {
+    background-color: #09111D;
+
+    border-color: #1D3048;
+}
+
+
+QLabel#dropZoneTitle {
+    background-color: transparent;
+
+    color: #A8D4FF;
+
+    font-size: 10pt;
+    font-weight: 800;
+
+    letter-spacing: 1px;
+}
+
+
+QLabel#dropZoneMessage {
+    background-color: transparent;
+
+    color: #7890AE;
+
+    font-size: 9pt;
+}
 
 """

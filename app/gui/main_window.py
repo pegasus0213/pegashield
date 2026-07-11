@@ -1,6 +1,9 @@
 import os
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+)
 
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -41,6 +44,222 @@ from app.services.quarantine import (
 )
 
 
+# =================================================
+# Drag-and-drop scan area
+# =================================================
+
+class ScanDropZone(QFrame):
+    """
+    Accept a file or folder dropped by the user
+    and send its local path to the main window.
+    """
+
+    path_dropped = Signal(str)
+
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.setObjectName(
+            "scanDropZone"
+        )
+
+        self.setAcceptDrops(
+            True
+        )
+
+        self.setMinimumHeight(
+            92
+        )
+
+        layout = QVBoxLayout(
+            self
+        )
+
+        layout.setContentsMargins(
+            20,
+            14,
+            20,
+            14,
+        )
+
+        layout.setSpacing(
+            4
+        )
+
+        self.title_label = QLabel(
+            "DROP A FILE OR FOLDER TO SCAN"
+        )
+
+        self.title_label.setObjectName(
+            "dropZoneTitle"
+        )
+
+        self.title_label.setAlignment(
+            Qt.AlignCenter
+        )
+
+        self.message_label = QLabel(
+            "Drag an item from File Explorer "
+            "and release it here"
+        )
+
+        self.message_label.setObjectName(
+            "dropZoneMessage"
+        )
+
+        self.message_label.setAlignment(
+            Qt.AlignCenter
+        )
+
+        layout.addWidget(
+            self.title_label
+        )
+
+        layout.addWidget(
+            self.message_label
+        )
+
+
+    def set_drag_active(
+        self,
+        active,
+    ):
+
+        self.setProperty(
+            "dragActive",
+            active,
+        )
+
+        self.style().unpolish(
+            self
+        )
+
+        self.style().polish(
+            self
+        )
+
+        self.update()
+
+
+    def dragEnterEvent(
+        self,
+        event,
+    ):
+
+        mime_data = (
+            event.mimeData()
+        )
+
+        if not mime_data.hasUrls():
+
+            event.ignore()
+
+            return
+
+        local_paths = [
+            url.toLocalFile()
+            for url in mime_data.urls()
+            if url.isLocalFile()
+        ]
+
+        if not local_paths:
+
+            event.ignore()
+
+            return
+
+        self.set_drag_active(
+            True
+        )
+
+        self.title_label.setText(
+            "RELEASE TO START SCANNING"
+        )
+
+        self.message_label.setText(
+            os.path.basename(
+                local_paths[0]
+            )
+            or local_paths[0]
+        )
+
+        event.acceptProposedAction()
+
+
+    def dragMoveEvent(
+        self,
+        event,
+    ):
+
+        if event.mimeData().hasUrls():
+
+            event.acceptProposedAction()
+
+        else:
+
+            event.ignore()
+
+
+    def dragLeaveEvent(
+        self,
+        event,
+    ):
+
+        self.reset_display()
+
+        event.accept()
+
+
+    def dropEvent(
+        self,
+        event,
+    ):
+
+        local_paths = [
+            url.toLocalFile()
+            for url in (
+                event.mimeData().urls()
+            )
+            if url.isLocalFile()
+        ]
+
+        self.reset_display()
+
+        if not local_paths:
+
+            event.ignore()
+
+            return
+
+        self.path_dropped.emit(
+            local_paths[0]
+        )
+
+        event.acceptProposedAction()
+
+
+    def reset_display(self):
+
+        self.set_drag_active(
+            False
+        )
+
+        self.title_label.setText(
+            "DROP A FILE OR FOLDER TO SCAN"
+        )
+
+        self.message_label.setText(
+            "Drag an item from File Explorer "
+            "and release it here"
+        )
+
+
+# =================================================
+# Main PegaShield window
+# =================================================
+
 class MainWindow(QWidget):
     """
     Main PegaShield security dashboard.
@@ -72,12 +291,12 @@ class MainWindow(QWidget):
 
         self.setMinimumSize(
             1050,
-            720,
+            760,
         )
 
         self.resize(
             1250,
-            850,
+            900,
         )
 
         self.build_interface()
@@ -122,6 +341,18 @@ class MainWindow(QWidget):
 
         main_layout.addWidget(
             self.create_action_panel()
+        )
+
+        self.scan_drop_zone = (
+            ScanDropZone()
+        )
+
+        self.scan_drop_zone.path_dropped.connect(
+            self.scan_dropped_path
+        )
+
+        main_layout.addWidget(
+            self.scan_drop_zone
         )
 
         main_layout.addWidget(
@@ -837,8 +1068,7 @@ class MainWindow(QWidget):
                 "Database update required",
                 (
                     "Update the signature "
-                    "database before scanning "
-                    "files."
+                    "database before scanning."
                 ),
                 "ATTENTION",
             )
@@ -921,6 +1151,10 @@ class MainWindow(QWidget):
             enabled
         )
 
+        self.scan_drop_zone.setEnabled(
+            enabled
+        )
+
 
     def start_command(
         self,
@@ -928,6 +1162,22 @@ class MainWindow(QWidget):
         status,
         operation_type,
     ):
+
+        if (
+            self.worker is not None
+            and self.worker.isRunning()
+        ):
+
+            QMessageBox.information(
+                self,
+                "Operation in Progress",
+                (
+                    "Wait for the current "
+                    "operation to finish."
+                ),
+            )
+
+            return
 
         self.set_operation_buttons_enabled(
             False
@@ -997,6 +1247,70 @@ class MainWindow(QWidget):
         self.update_summary()
 
 
+    def start_scan_path(
+        self,
+        path,
+    ):
+
+        if not os.path.exists(
+            path
+        ):
+
+            QMessageBox.warning(
+                self,
+                "Item Not Found",
+                (
+                    "The selected file or "
+                    "folder no longer exists."
+                ),
+            )
+
+            return
+
+        self.prepare_new_scan()
+
+        if os.path.isdir(
+            path
+        ):
+
+            self.log_output.append(
+                "\nStarting folder scan: "
+                f"{path}"
+            )
+
+            command = [
+                self.clamscan_path,
+                "--recursive",
+                "--database",
+                DATABASE_DIRECTORY,
+                path,
+            ]
+
+            status = "SCANNING FOLDER"
+
+        else:
+
+            self.log_output.append(
+                "\nStarting file scan: "
+                f"{path}"
+            )
+
+            command = [
+                self.clamscan_path,
+                "--database",
+                DATABASE_DIRECTORY,
+                path,
+            ]
+
+            status = "SCANNING FILE"
+
+        self.start_command(
+            command,
+            status,
+            "scan",
+        )
+
+
     def scan_file(self):
 
         file_path, _ = (
@@ -1006,29 +1320,11 @@ class MainWindow(QWidget):
             )
         )
 
-        if not file_path:
+        if file_path:
 
-            return
-
-        self.prepare_new_scan()
-
-        self.log_output.append(
-            "\nStarting file scan: "
-            f"{file_path}"
-        )
-
-        command = [
-            self.clamscan_path,
-            "--database",
-            DATABASE_DIRECTORY,
-            file_path,
-        ]
-
-        self.start_command(
-            command,
-            "SCANNING",
-            "scan",
-        )
+            self.start_scan_path(
+                file_path
+            )
 
 
     def scan_folder(self):
@@ -1040,29 +1336,45 @@ class MainWindow(QWidget):
             )
         )
 
-        if not folder_path:
+        if folder_path:
+
+            self.start_scan_path(
+                folder_path
+            )
+
+
+    def scan_dropped_path(
+        self,
+        path,
+    ):
+
+        if (
+            self.worker is not None
+            and self.worker.isRunning()
+        ):
+
+            QMessageBox.information(
+                self,
+                "Operation in Progress",
+                (
+                    "Wait for the current "
+                    "operation to finish before "
+                    "starting another scan."
+                ),
+            )
 
             return
 
-        self.prepare_new_scan()
-
         self.log_output.append(
-            "\nStarting folder scan: "
-            f"{folder_path}"
+            "\nItem received by drag and drop:"
         )
 
-        command = [
-            self.clamscan_path,
-            "--recursive",
-            "--database",
-            DATABASE_DIRECTORY,
-            folder_path,
-        ]
+        self.log_output.append(
+            path
+        )
 
-        self.start_command(
-            command,
-            "SCANNING",
-            "scan",
+        self.start_scan_path(
+            path
         )
 
 
